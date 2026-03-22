@@ -32,7 +32,7 @@ create table publish_queue (
 ```
 
 **2. Tabla app_admin (login)** – Ejecuta el contenido de `supabase-app-admin.sql`
-Usuario: `info@basketouch.com`. La contraseña se configura la primera vez que accedes.
+Usuario: configurable con `ADMIN_EMAIL` en variables de entorno. La contraseña se configura la primera vez. El usuario no se muestra en pantalla (por seguridad).
 
 ## Configuración
 

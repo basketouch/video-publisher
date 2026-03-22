@@ -7,7 +7,7 @@ const bcrypt = require('bcryptjs');
 const { google } = require('googleapis');
 const { createClient } = require('@supabase/supabase-js');
 
-const ADMIN_EMAIL = 'info@basketouch.com';
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'info@basketouch.com';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -79,29 +79,29 @@ app.use(cookieSession({
 // Estado del admin: ¿necesita setup? ¿está logueado?
 app.get('/api/admin/status', async (req, res) => {
   try {
-    const { data } = await getSupabase().from('app_admin').select('id').eq('email', ADMIN_EMAIL).maybeSingle();
+    const { data } = await getSupabase().from('app_admin').select('id').eq('email', ADMIN_EMAIL.trim().toLowerCase()).maybeSingle();
     const needsSetup = !data;
     const loggedIn = !!req.session?.adminLoggedIn;
-    res.json({ needsSetup, loggedIn, adminEmail: ADMIN_EMAIL });
+    res.json({ needsSetup, loggedIn });
   } catch (err) {
     console.error('Error api/admin/status:', err);
     res.status(500).json({ needsSetup: true, loggedIn: false });
   }
 });
 
-// Primera vez: crear contraseña
+// Primera vez: crear contraseña (el usuario viene de ADMIN_EMAIL en env)
 app.post('/api/admin/setup', async (req, res) => {
-  const { email, password } = req.body;
-  if (email !== ADMIN_EMAIL || !password || password.length < 6) {
-    return res.status(400).json({ error: 'Email debe ser ' + ADMIN_EMAIL + ' y contraseña mínimo 6 caracteres' });
+  const { password } = req.body;
+  if (!password || password.length < 6) {
+    return res.status(400).json({ error: 'Contraseña mínimo 6 caracteres' });
   }
   try {
-    const { data: existing } = await getSupabase().from('app_admin').select('id').eq('email', ADMIN_EMAIL).maybeSingle();
+    const { data: existing } = await getSupabase().from('app_admin').select('id').eq('email', ADMIN_EMAIL.trim().toLowerCase()).maybeSingle();
     if (existing) {
       return res.status(400).json({ error: 'El administrador ya está configurado. Usa Iniciar sesión.' });
     }
     const passwordHash = bcrypt.hashSync(password, 10);
-    await getSupabase().from('app_admin').insert({ email: ADMIN_EMAIL, password_hash: passwordHash });
+    await getSupabase().from('app_admin').insert({ email: ADMIN_EMAIL.trim().toLowerCase(), password_hash: passwordHash });
     req.session.adminLoggedIn = true;
     res.json({ success: true });
   } catch (err) {
@@ -110,14 +110,14 @@ app.post('/api/admin/setup', async (req, res) => {
   }
 });
 
-// Iniciar sesión
+// Iniciar sesión (valida contra cualquier usuario en app_admin)
 app.post('/api/admin/login', async (req, res) => {
   const { email, password } = req.body;
-  if (email !== ADMIN_EMAIL || !password) {
+  if (!email || !password) {
     return res.status(400).json({ error: 'Credenciales incorrectas' });
   }
   try {
-    const { data } = await getSupabase().from('app_admin').select('password_hash').eq('email', ADMIN_EMAIL).maybeSingle();
+    const { data } = await getSupabase().from('app_admin').select('password_hash').eq('email', email.trim().toLowerCase()).maybeSingle();
     if (!data || !bcrypt.compareSync(password, data.password_hash)) {
       return res.status(401).json({ error: 'Credenciales incorrectas' });
     }

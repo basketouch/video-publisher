@@ -57,13 +57,13 @@
   <div id="auth-gate" style="display:none; max-width: 400px; margin: 80px auto; padding: 32px; background: #f8f9fa; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
     <h2 style="margin: 0 0 24px; font-size: 20px;">Video Publisher</h2>
     <form id="auth-form">
-      <div class="form-group">
+      <div class="form-group" id="auth-email-group" style="display:none;">
         <label for="auth-email">Usuario</label>
-        <input type="email" id="auth-email" value="info@basketouch.com" readonly style="background: #e8eaed; cursor: not-allowed;">
+        <input type="text" id="auth-email" placeholder="Usuario" autocomplete="username">
       </div>
       <div class="form-group">
         <label for="auth-password">Contraseña</label>
-        <input type="password" id="auth-password" required minlength="6" placeholder="Introduce tu contraseña" autocomplete="current-password">
+        <input type="password" id="auth-password" required minlength="6" placeholder="Contraseña" autocomplete="current-password">
       </div>
       <div id="auth-hint" class="hint" style="margin-bottom: 16px;"></div>
       <button type="submit" class="btn btn-primary" style="width: 100%;">Entrar</button>
@@ -369,14 +369,14 @@
 
     authForm.onsubmit = async (e) => {
       e.preventDefault();
-      const email = document.getElementById('auth-email').value;
       const password = authPassword.value;
       const isSetup = authForm.dataset.mode === 'setup';
       const url = isSetup ? '/api/admin/setup' : '/api/admin/login';
+      const body = isSetup ? { password } : { email: document.getElementById('auth-email').value.trim(), password };
       const resp = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password })
+        body: JSON.stringify(body)
       });
       const json = await resp.json().catch(() => ({}));
       if (!resp.ok) {
@@ -420,6 +420,8 @@
           return;
         }
         authGate.style.display = 'block';
+        document.getElementById('auth-email-group').style.display = 'none';
+        authPassword.value = '';
         if (status.needsSetup) {
           authForm.dataset.mode = 'setup';
           authForm.querySelector('button').textContent = 'Crear contraseña';
@@ -427,6 +429,8 @@
           authHint.style.color = '#5f6368';
         } else {
           authForm.dataset.mode = 'login';
+          document.getElementById('auth-email-group').style.display = 'block';
+          document.getElementById('auth-email').value = '';
           authForm.querySelector('button').textContent = 'Entrar';
           authHint.textContent = '';
         }
