@@ -49,8 +49,8 @@ function getRedirectUri(req) {
 }
 
 // Service Account para Drive (cuenta empresa)
-// Soporta GOOGLE_SERVICE_ACCOUNT_JSON (raw) o GOOGLE_SERVICE_ACCOUNT_JSON_BASE64 (más fiable en Vercel)
-function parseServiceAccountCreds() {
+// Origen: 1) Env vars, 2) Supabase (evita problemas con Vercel)
+function parseServiceAccountFromEnv() {
   const base64 = process.env.GOOGLE_SERVICE_ACCOUNT_JSON_BASE64;
   const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
   let jsonStr;
@@ -68,16 +68,32 @@ function parseServiceAccountCreds() {
     return null;
   }
 }
-const _saCreds = parseServiceAccountCreds();
-const USE_SA_DRIVE = !!_saCreds;
+let _saCreds = parseServiceAccountFromEnv();
+let USE_SA_DRIVE = !!_saCreds;
+
+async function ensureServiceAccountCreds() {
+  if (_saCreds) return _saCreds;
+  try {
+    const sb = getSupabase();
+    if (!sb) return null;
+    const { data, error } = await sb.from('service_account_creds').select('json_data').eq('id', 'default').maybeSingle();
+    if (error || !data?.json_data) return null;
+    _saCreds = data.json_data;
+    USE_SA_DRIVE = true;
+    return _saCreds;
+  } catch (e) {
+    console.error('Error leyendo Service Account desde Supabase:', e.message);
+    return null;
+  }
+}
+
 function getDriveServiceAccountClient() {
   if (!_saCreds) return null;
   try {
-    const auth = new google.auth.GoogleAuth({
+    return new google.auth.GoogleAuth({
       credentials: _saCreds,
       scopes: ['https://www.googleapis.com/auth/drive.readonly']
     });
-    return auth;
   } catch (e) {
     console.error('Error creando Service Account client:', e.message);
     return null;
@@ -196,7 +212,8 @@ const OAUTH_SCOPES_YOUTUBE_ONLY = [
 ];
 
 // Redirige a Google: solo YouTube si usamos SA para Drive; Drive+YouTube si no
-app.get('/auth', (req, res) => {
+app.get('/auth', async (req, res) => {
+  await ensureServiceAccountCreds();
   const redirectUri = getRedirectUri(req);
   const oauth2Client = getOAuth2Client(redirectUri);
   const scopes = USE_SA_DRIVE ? OAUTH_SCOPES_YOUTUBE_ONLY : OAUTH_SCOPES_DRIVE_AND_YOUTUBE;
@@ -241,14 +258,11 @@ app.get('/auth/logout', (req, res) => {
 
 // Config para el frontend (carpeta por defecto)
 const DEFAULT_FOLDER = process.env.DEFAULT_DRIVE_FOLDER_ID || '1y6rIQTNtqeRaq-z8Vw8kaWFvy_2moRtD';
-app.get('/api/config', (req, res) => {
-  const hasRaw = !!process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
-  const hasBase64 = !!process.env.GOOGLE_SERVICE_ACCOUNT_JSON_BASE64;
-  const googleEnvKeys = Object.keys(process.env).filter(k => k.includes('GOOGLE'));
+app.get('/api/config', async (req, res) => {
+  await ensureServiceAccountCreds();
   res.json({
     defaultFolderId: DEFAULT_FOLDER,
-    useServiceAccountDrive: USE_SA_DRIVE,
-    _debug: { hasRaw, hasBase64, googleEnvKeys }  // googleEnvKeys: vars GOOGLE* que ve el servidor
+    useServiceAccountDrive: USE_SA_DRIVE
   });
 });
 
@@ -272,10 +286,11 @@ async function getDriveClient(req) {
 // Con USE_SA_DRIVE: usa Service Account (no requiere sesión OAuth)
 // Sin USE_SA_DRIVE: usa OAuth del usuario
 app.get('/api/drive/files', async (req, res) => {
+  await ensureServiceAccountCreds();
   let auth = null;
   if (USE_SA_DRIVE) {
     auth = getDriveServiceAccountClient();
-    if (!auth) return res.status(503).json({ error: 'Service Account no configurado correctamente' });
+    if (!auth) return res.status(503).json({ error: 'Service Account no configurado. Añade credenciales en Supabase (service_account_creds) o en GOOGLE_SERVICE_ACCOUNT_JSON.' });
   } else {
     auth = await getDriveClient(req);
     if (!auth) return res.status(401).json({ error: 'Conecta Google Drive para continuar' });
@@ -333,6 +348,7 @@ app.get('/api/drive/files', async (req, res) => {
 // Inserta fila en publish_queue de Supabase
 // Con USE_SA_DRIVE: solo se necesita YouTube (tokens); sin SA: Drive+YouTube
 app.post('/api/queue', async (req, res) => {
+  await ensureServiceAccountCreds();
   const hasTokens = !!req.session?.tokens;
   if (!hasTokens) {
     return res.status(401).json({
@@ -416,6 +432,7 @@ app.post('/api/process_publish', async (req, res) => {
     }
 
     // Drive: SA (empresa) o OAuth; YouTube: siempre OAuth (canal personal)
+    await ensureServiceAccountCreds();
     const driveAuth = USE_SA_DRIVE ? getDriveServiceAccountClient() : oauth2Client;
     if (!driveAuth) {
       return res.json({ success: false, error: 'Service Account no configurado para Drive.' });

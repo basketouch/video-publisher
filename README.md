@@ -39,6 +39,10 @@ create table publish_queue (
 **3. Tabla drive_tokens (YouTube)** – Ejecuta el contenido de `supabase-drive-tokens.sql`  
 Guarda los tokens OAuth de Drive+YouTube para que n8n pueda publicar sin sesión activa.
 
+**4. Tabla service_account_creds (Drive empresa, opcional)** – Ejecuta `supabase-service-account.sql`  
+Si las variables de entorno para Service Account fallan en Vercel, guarda el JSON aquí. Luego ejecuta:
+`node scripts/gen-sa-insert.js` y pega el resultado en Supabase SQL Editor.
+
 ## Configuración
 
 1. Copia `.env.example` a `.env`
