@@ -148,19 +148,26 @@ app.use(requireAdmin);
 
 // --- Rutas protegidas ---
 
-// Redirige a Google para autorizar Drive (solo cuando no hay sesión)
+// Scopes: Drive (leer/descargar) + YouTube (subir)
+const OAUTH_SCOPES = [
+  'https://www.googleapis.com/auth/drive.readonly',
+  'https://www.googleapis.com/auth/youtube.upload',
+  'https://www.googleapis.com/auth/youtube'
+];
+
+// Redirige a Google para autorizar Drive + YouTube
 app.get('/auth', (req, res) => {
   const redirectUri = getRedirectUri(req);
   const oauth2Client = getOAuth2Client(redirectUri);
   const authUrl = oauth2Client.generateAuthUrl({
     access_type: 'offline',
-    scope: ['https://www.googleapis.com/auth/drive.readonly'],
+    scope: OAUTH_SCOPES,
     prompt: 'consent'
   });
   res.redirect(authUrl);
 });
 
-// Recibe el code de Google, guarda tokens en sesión
+// Recibe el code de Google, guarda tokens en sesión y en Supabase (para process_publish)
 app.get('/api/auth/callback', async (req, res) => {
   const { code } = req.query;
   if (!code) {
@@ -171,6 +178,13 @@ app.get('/api/auth/callback', async (req, res) => {
     const oauth2Client = getOAuth2Client(redirectUri);
     const { tokens } = await oauth2Client.getToken(code);
     req.session.tokens = tokens;
+    // Guardar en Supabase para que n8n/process_publish pueda usarlos (un solo admin)
+    await getSupabase()
+      .from('drive_tokens')
+      .upsert(
+        { email: ADMIN_EMAIL.trim().toLowerCase(), tokens, updated_at: new Date().toISOString() },
+        { onConflict: 'email' }
+      );
     res.redirect('/');
   } catch (err) {
     console.error('Error en auth/callback:', err);
@@ -294,22 +308,101 @@ app.post('/api/queue', async (req, res) => {
   }
 });
 
+// Obtiene OAuth client con tokens de drive_tokens (para process_publish sin sesión)
+async function getStoredOAuthClient() {
+  const { data } = await getSupabase()
+    .from('drive_tokens')
+    .select('tokens')
+    .eq('email', ADMIN_EMAIL.trim().toLowerCase())
+    .maybeSingle();
+  if (!data?.tokens) return null;
+  const oauth2Client = getOAuth2Client();
+  oauth2Client.setCredentials(data.tokens);
+  oauth2Client.on('tokens', async (tokens) => {
+    await getSupabase()
+      .from('drive_tokens')
+      .update({ tokens: { ...data.tokens, ...tokens }, updated_at: new Date().toISOString() })
+      .eq('email', ADMIN_EMAIL.trim().toLowerCase());
+  });
+  return oauth2Client;
+}
+
 // Endpoint que n8n llama para procesar cada fila pendiente de publish_queue
-// TODO: implementar descarga de Drive + subida a YouTube/LinkedIn (requiere tokens OAuth almacenados)
 app.post('/api/process_publish', async (req, res) => {
   const { id, drive_file_id, drive_file_name, title, description, platforms } = req.body;
   if (!id || !drive_file_id) {
     return res.status(400).json({ success: false, error: 'Faltan id o drive_file_id' });
   }
+  const platformList = Array.isArray(platforms) ? platforms : (platforms ? [platforms] : []);
+  const publishYouTube = platformList.includes('youtube');
+
   try {
-    // Stub: aún no hay lógica de publicación (Drive requiere OAuth del usuario)
+    if (!publishYouTube) {
+      return res.json({
+        success: false,
+        error: 'Solo YouTube está implementado. Plataformas solicitadas: ' + platformList.join(', ')
+      });
+    }
+
+    const oauth2Client = await getStoredOAuthClient();
+    if (!oauth2Client) {
+      return res.json({
+        success: false,
+        error: 'No hay tokens de Google guardados. Conecta Drive+YouTube en la web y añade un vídeo a la cola de nuevo.'
+      });
+    }
+
+    const drive = google.drive({ version: 'v3', auth: oauth2Client });
+    const youtube = google.youtube({ version: 'v3', auth: oauth2Client });
+
+    // 1. Metadata del archivo en Drive
+    const { data: fileMeta } = await drive.files.get({
+      fileId: drive_file_id,
+      fields: 'size, mimeType',
+      supportsAllDrives: true
+    });
+
+    // 2. Descargar vídeo de Drive (stream)
+    const streamRes = await drive.files.get({
+      fileId: drive_file_id,
+      alt: 'media',
+      supportsAllDrives: true
+    }, { responseType: 'stream' });
+    const fileStream = streamRes.data;
+
+    // 3. Subir a YouTube
+    const { data: youtubeVideo } = await youtube.videos.insert({
+      part: 'snippet,status',
+      requestBody: {
+        snippet: {
+          title: title || drive_file_name,
+          description: description || ''
+        },
+        status: {
+          privacyStatus: process.env.YOUTUBE_PRIVACY || 'private'
+        }
+      },
+      media: {
+        body: fileStream,
+        mimeType: fileMeta.mimeType || 'video/mp4',
+        ...(fileMeta.size && { contentLength: parseInt(fileMeta.size, 10) })
+      }
+    });
+
+    const videoId = youtubeVideo.id;
+    const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
+
     res.json({
-      success: false,
-      error: 'process_publish no implementado. Falta lógica de descarga desde Drive y subida a plataformas.'
+      success: true,
+      published_urls: { youtube: youtubeUrl }
     });
   } catch (err) {
     console.error('Error en process_publish:', err);
-    res.status(500).json({ success: false, error: err.message });
+    res.status(500).json({
+      success: false,
+      error: err.message || 'Error al publicar',
+      details: err.response?.data?.error?.message
+    });
   }
 });
 

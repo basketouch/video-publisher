@@ -24,15 +24,20 @@ create table publish_queue (
   scheduled_at timestamptz,
   options jsonb default '{}',
   status text default 'pending',
+  published_urls jsonb,
+  error text,
   created_at timestamptz default now()
 );
 
--- Si usas la clave anon en lugar de service_role, permite inserts:
--- create policy "Allow service inserts" on publish_queue for insert with check (true);
+-- Si ya tienes la tabla, añade las columnas:
+-- alter table publish_queue add column if not exists published_urls jsonb;
+-- alter table publish_queue add column if not exists error text;
 ```
 
 **2. Tabla app_admin (login)** – Ejecuta el contenido de `supabase-app-admin.sql`
-Usuario: configurable con `ADMIN_EMAIL` en variables de entorno. La contraseña se configura la primera vez. El usuario no se muestra en pantalla (por seguridad).
+
+**3. Tabla drive_tokens (YouTube)** – Ejecuta el contenido de `supabase-drive-tokens.sql`  
+Guarda los tokens OAuth de Drive+YouTube para que n8n pueda publicar sin sesión activa.
 
 ## Configuración
 
@@ -56,7 +61,8 @@ Usuario: configurable con `ADMIN_EMAIL` en variables de entorno. La contraseña 
 2. API y servicios → Credenciales → Crear credenciales → ID de cliente OAuth
 3. Tipo: Aplicación web
 4. URIs de redirección autorizados: `http://localhost:3000/api/auth/callback` y `https://video.basketouch.com/api/auth/callback` (producción)
-5. Scope usado: `https://www.googleapis.com/auth/drive.readonly`
+5. **Habilita YouTube Data API v3** en API y servicios → Biblioteca → "YouTube Data API v3" → Habilitar
+6. Scopes usados: `drive.readonly`, `youtube.upload`, `youtube` (para subir a YouTube)
 
 ## Uso
 
@@ -67,12 +73,13 @@ npm start
 
 Abre http://localhost:3000:
 
-1. **Conectar Google Drive** → autoriza la app
+1. **Conectar Google Drive + YouTube** → autoriza la app (Drive para listar, YouTube para subir)
 2. Ver la lista de vídeos
-3. **Seleccionar** uno → completar título, descripción, plataformas, fecha
+3. **Seleccionar** uno → completar título, descripción, plataformas (YouTube, etc.), fecha
 4. Se crea una fila en `publish_queue` con `status=pending`
+5. n8n (cada 5 min) llama al backend, que descarga de Drive y sube a YouTube
 
-n8n puede hacer polling o usar webhooks sobre esa tabla para publicar en LinkedIn/YouTube.
+**Primera vez con YouTube:** Desconecta y vuelve a conectar para otorgar permiso de YouTube.
 
 ## Despliegue en Vercel
 
