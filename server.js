@@ -38,6 +38,9 @@ function getOAuth2Client() {
   );
 }
 
+// Trust proxy (necesario en Vercel para que secure cookies y X-Forwarded-* funcionen)
+app.set('trust proxy', 1);
+
 // Middleware
 app.use(bodyParser.json());
 
@@ -57,7 +60,8 @@ app.use(cookieSession({
   keys: [process.env.SESSION_SECRET],
   maxAge: 7 * 24 * 60 * 60 * 1000, // 7 días
   httpOnly: true,
-  secure: process.env.NODE_ENV === 'production'
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'lax' // Necesario para OAuth redirect desde Google
 }));
 
 // --- Rutas ---
