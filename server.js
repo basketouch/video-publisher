@@ -242,9 +242,12 @@ app.get('/auth/logout', (req, res) => {
 // Config para el frontend (carpeta por defecto)
 const DEFAULT_FOLDER = process.env.DEFAULT_DRIVE_FOLDER_ID || '1y6rIQTNtqeRaq-z8Vw8kaWFvy_2moRtD';
 app.get('/api/config', (req, res) => {
+  const hasRaw = !!process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+  const hasBase64 = !!process.env.GOOGLE_SERVICE_ACCOUNT_JSON_BASE64;
   res.json({
     defaultFolderId: DEFAULT_FOLDER,
-    useServiceAccountDrive: USE_SA_DRIVE
+    useServiceAccountDrive: USE_SA_DRIVE,
+    _debug: { hasRaw, hasBase64 }  // diagnostico: ¿qué variable está definida?
   });
 });
 
