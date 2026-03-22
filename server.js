@@ -107,6 +107,15 @@ app.get('/api/config', (req, res) => {
   });
 });
 
+// Debug OAuth: ver qué redirect_uri usa la app (borrar en producción)
+app.get('/api/debug-oauth', (req, res) => {
+  res.json({
+    redirect_uri: GOOGLE_REDIRECT_URI,
+    has_redirect_var: !!process.env.GOOGLE_REDIRECT_URI,
+    vercel_url: process.env.VERCEL_URL || null
+  });
+});
+
 // Refresca tokens si han caducado y devuelve oauth2Client listo
 async function getDriveClient(req) {
   if (!req.session?.tokens) return null;
