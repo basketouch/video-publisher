@@ -8,10 +8,11 @@ Webapp ligera para conectar Google Drive, listar vídeos, seleccionar uno, relle
 - Cuenta Google Cloud con OAuth configurado
 - Proyecto Supabase
 
-## Tabla Supabase
+## Tablas Supabase
 
-Crea la tabla `publish_queue` en el SQL Editor de Supabase:
+Ejecuta en el SQL Editor de Supabase:
 
+**1. Tabla publish_queue**
 ```sql
 create table publish_queue (
   id uuid default gen_random_uuid() primary key,
@@ -29,6 +30,9 @@ create table publish_queue (
 -- Si usas la clave anon en lugar de service_role, permite inserts:
 -- create policy "Allow service inserts" on publish_queue for insert with check (true);
 ```
+
+**2. Tabla app_admin (login)** – Ejecuta el contenido de `supabase-app-admin.sql`
+Usuario: `info@basketouch.com`. La contraseña se configura la primera vez que accedes.
 
 ## Configuración
 

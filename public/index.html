@@ -54,11 +54,29 @@
   </style>
 </head>
 <body>
+  <div id="auth-gate" style="display:none; max-width: 400px; margin: 80px auto; padding: 32px; background: #f8f9fa; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
+    <h2 style="margin: 0 0 24px; font-size: 20px;">Video Publisher</h2>
+    <form id="auth-form">
+      <div class="form-group">
+        <label for="auth-email">Usuario</label>
+        <input type="email" id="auth-email" value="info@basketouch.com" readonly style="background: #e8eaed; cursor: not-allowed;">
+      </div>
+      <div class="form-group">
+        <label for="auth-password">Contraseña</label>
+        <input type="password" id="auth-password" required minlength="6" placeholder="Introduce tu contraseña" autocomplete="current-password">
+      </div>
+      <div id="auth-hint" class="hint" style="margin-bottom: 16px;"></div>
+      <button type="submit" class="btn btn-primary" style="width: 100%;">Entrar</button>
+    </form>
+  </div>
+
+  <div id="app-content" style="display:none;">
   <h1>Video Publisher</h1>
   <div class="toolbar">
     <a id="auth-link" href="/auth" class="btn btn-primary">Conectar Google Drive</a>
-    <a id="logout-link" href="/auth/logout" class="btn" style="display:none;">Desconectar</a>
+    <a id="logout-link" href="/auth/logout" class="btn" style="display:none;">Desconectar Drive</a>
     <span id="auth-status" class="connected" style="display:none;">Conectado a Google Drive</span>
+    <a href="#" id="admin-logout" class="btn" style="display:none; margin-left:auto;">Cerrar sesión</a>
   </div>
 
   <div id="message"></div>
@@ -110,6 +128,7 @@
         </div>
       </form>
     </div>
+  </div>
   </div>
 
   <script>
@@ -171,6 +190,7 @@
         logoutLink.style.display = 'none';
         authStatus.style.display = 'none';
         driveSection.style.display = 'none';
+        document.getElementById('admin-logout').style.display = 'inline-flex';
         listEl.className = 'empty';
         listEl.textContent = 'Conecta Google Drive para ver tus carpetas y vídeos.';
         return;
@@ -187,6 +207,7 @@
       logoutLink.style.display = 'inline-flex';
       authStatus.style.display = 'inline';
       driveSection.style.display = 'block';
+      document.getElementById('admin-logout').style.display = 'inline-flex';
 
       const { files, folder } = data;
 
@@ -296,6 +317,11 @@
     });
 
     document.getElementById('modal-cancel').onclick = () => modalOverlay.classList.remove('show');
+    document.getElementById('admin-logout').onclick = async (e) => {
+      e.preventDefault();
+      await fetch('/api/admin/logout', { method: 'POST' });
+      location.href = '/';
+    };
     modalOverlay.addEventListener('click', (e) => { if (e.target === modalOverlay) modalOverlay.classList.remove('show'); });
 
     publishForm.onsubmit = async (e) => {
@@ -335,19 +361,41 @@
       history.replaceState({}, '', location.pathname);
     }
 
-    (async function init() {
-      if (location.protocol === 'file:') {
-        showMessage('Abre la app en http://localhost:3000 (ejecuta npm start antes)', 'error');
-        listEl.textContent = 'Debes acceder vía el servidor (npm start).';
+    const authGate = document.getElementById('auth-gate');
+    const appContent = document.getElementById('app-content');
+    const authForm = document.getElementById('auth-form');
+    const authPassword = document.getElementById('auth-password');
+    const authHint = document.getElementById('auth-hint');
+
+    authForm.onsubmit = async (e) => {
+      e.preventDefault();
+      const email = document.getElementById('auth-email').value;
+      const password = authPassword.value;
+      const isSetup = authForm.dataset.mode === 'setup';
+      const url = isSetup ? '/api/admin/setup' : '/api/admin/login';
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      });
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        authHint.textContent = json.error || 'Error. Intenta de nuevo.';
+        authHint.style.color = '#c5221f';
         return;
       }
+      authGate.style.display = 'none';
+      appContent.style.display = 'block';
+      runApp();
+    };
+
+    async function runApp() {
       try {
         const configResp = await fetch('/api/config');
         const config = await safeJson(configResp);
         defaultFolderId = config.defaultFolderId || null;
       } catch (e) {
-        showMessage('No se pudo conectar al servidor. ¿Está corriendo npm start?', 'error');
-        listEl.textContent = 'Error de conexión. Ejecuta npm start en la terminal.';
+        showMessage('No se pudo cargar la configuración', 'error');
         return;
       }
       renderBreadcrumb();
@@ -355,6 +403,37 @@
       pathStack = defaultFolderId ? [{ id: 'root', name: 'Mi unidad' }, { id: defaultFolderId, name: '…' }] : [{ id: 'root', name: 'Mi unidad' }];
       renderBreadcrumb();
       await loadFiles(startFolder, { fromUrl: !!defaultFolderId });
+    }
+
+    (async function init() {
+      if (location.protocol === 'file:') {
+        showMessage('Abre la app en http://localhost:3000 (ejecuta npm start antes)', 'error');
+        listEl.textContent = 'Debes acceder vía el servidor (npm start).';
+        return;
+      }
+      try {
+        const statusResp = await fetch('/api/admin/status');
+        const status = await safeJson(statusResp);
+        if (status.loggedIn) {
+          appContent.style.display = 'block';
+          await runApp();
+          return;
+        }
+        authGate.style.display = 'block';
+        if (status.needsSetup) {
+          authForm.dataset.mode = 'setup';
+          authForm.querySelector('button').textContent = 'Crear contraseña';
+          authHint.textContent = 'Primera vez: elige una contraseña segura (mín. 6 caracteres).';
+          authHint.style.color = '#5f6368';
+        } else {
+          authForm.dataset.mode = 'login';
+          authForm.querySelector('button').textContent = 'Entrar';
+          authHint.textContent = '';
+        }
+      } catch (e) {
+        showMessage('No se pudo conectar al servidor.', 'error');
+        listEl.textContent = 'Error de conexión.';
+      }
     })();
   </script>
 </body>

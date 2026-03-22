@@ -3,8 +3,11 @@ const express = require('express');
 const path = require('path');
 const bodyParser = require('body-parser');
 const cookieSession = require('cookie-session');
+const bcrypt = require('bcryptjs');
 const { google } = require('googleapis');
 const { createClient } = require('@supabase/supabase-js');
+
+const ADMIN_EMAIL = 'info@basketouch.com';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -71,7 +74,79 @@ app.use(cookieSession({
   sameSite: 'lax' // Necesario para OAuth redirect desde Google
 }));
 
-// --- Rutas ---
+// --- Rutas públicas (no requieren login admin) ---
+
+// Estado del admin: ¿necesita setup? ¿está logueado?
+app.get('/api/admin/status', async (req, res) => {
+  try {
+    const { data } = await getSupabase().from('app_admin').select('id').eq('email', ADMIN_EMAIL).maybeSingle();
+    const needsSetup = !data;
+    const loggedIn = !!req.session?.adminLoggedIn;
+    res.json({ needsSetup, loggedIn, adminEmail: ADMIN_EMAIL });
+  } catch (err) {
+    console.error('Error api/admin/status:', err);
+    res.status(500).json({ needsSetup: true, loggedIn: false });
+  }
+});
+
+// Primera vez: crear contraseña
+app.post('/api/admin/setup', async (req, res) => {
+  const { email, password } = req.body;
+  if (email !== ADMIN_EMAIL || !password || password.length < 6) {
+    return res.status(400).json({ error: 'Email debe ser ' + ADMIN_EMAIL + ' y contraseña mínimo 6 caracteres' });
+  }
+  try {
+    const { data: existing } = await getSupabase().from('app_admin').select('id').eq('email', ADMIN_EMAIL).maybeSingle();
+    if (existing) {
+      return res.status(400).json({ error: 'El administrador ya está configurado. Usa Iniciar sesión.' });
+    }
+    const passwordHash = bcrypt.hashSync(password, 10);
+    await getSupabase().from('app_admin').insert({ email: ADMIN_EMAIL, password_hash: passwordHash });
+    req.session.adminLoggedIn = true;
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Error api/admin/setup:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Iniciar sesión
+app.post('/api/admin/login', async (req, res) => {
+  const { email, password } = req.body;
+  if (email !== ADMIN_EMAIL || !password) {
+    return res.status(400).json({ error: 'Credenciales incorrectas' });
+  }
+  try {
+    const { data } = await getSupabase().from('app_admin').select('password_hash').eq('email', ADMIN_EMAIL).maybeSingle();
+    if (!data || !bcrypt.compareSync(password, data.password_hash)) {
+      return res.status(401).json({ error: 'Credenciales incorrectas' });
+    }
+    req.session.adminLoggedIn = true;
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Error api/admin/login:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Cerrar sesión admin
+app.post('/api/admin/logout', (req, res) => {
+  req.session.adminLoggedIn = false;
+  res.json({ success: true });
+});
+
+// Middleware: requiere login admin para /auth y APIs de Drive
+const publicPaths = ['/api/admin/status', '/api/admin/setup', '/api/admin/login', '/api/admin/logout', '/api/process_publish'];
+function requireAdmin(req, res, next) {
+  if (req.path === '/' || req.path === '' || publicPaths.some(p => req.path === p)) return next();
+  if (req.session?.adminLoggedIn) return next();
+  if (req.path === '/auth' || req.path === '/auth/logout') return res.redirect('/');
+  if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'Inicia sesión' });
+  next();
+}
+app.use(requireAdmin);
+
+// --- Rutas protegidas ---
 
 // Redirige a Google para autorizar Drive (solo cuando no hay sesión)
 app.get('/auth', (req, res) => {
