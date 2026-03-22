@@ -116,16 +116,6 @@ app.get('/api/config', (req, res) => {
   });
 });
 
-// Debug OAuth: ver qué redirect_uri usa la app según el host de la petición
-app.get('/api/debug-oauth', (req, res) => {
-  res.json({
-    redirect_uri_from_request: getRedirectUri(req),
-    redirect_uri_from_env: GOOGLE_REDIRECT_URI,
-    host: req.get('host'),
-    protocol: req.protocol
-  });
-});
-
 // Refresca tokens si han caducado y devuelve oauth2Client listo
 async function getDriveClient(req) {
   if (!req.session?.tokens) return null;
