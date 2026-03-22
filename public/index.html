@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Video Publisher</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 800px; margin: 0 auto; padding: 24px; }
+    h1 { margin-top: 0; }
+    .toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+    .btn { padding: 8px 16px; cursor: pointer; border-radius: 8px; border: 1px solid #dadce0; background: #fff; font-size: 14px; text-decoration: none; color: inherit; display: inline-flex; align-items: center; gap: 6px; }
+    .btn:hover { background: #f1f3f4; }
+    .btn-primary { background: #1a73e8; color: white; border-color: #1a73e8; }
+    .btn-primary:hover { background: #1557b0; }
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .breadcrumb { display: flex; align-items: center; gap: 4px; font-size: 14px; color: #5f6368; margin-bottom: 12px; flex-wrap: wrap; }
+    .breadcrumb a, .breadcrumb span { color: #1a73e8; text-decoration: none; }
+    .breadcrumb a:hover { text-decoration: underline; }
+    .breadcrumb .sep { color: #5f6368; }
+    .view-tabs { display: flex; gap: 4px; margin-bottom: 12px; }
+    .view-tabs .tab { padding: 8px 14px; border: none; background: #f1f3f4; border-radius: 8px; cursor: pointer; font-size: 14px; }
+    .view-tabs .tab:hover { background: #e8eaed; }
+    .view-tabs .tab.active { background: #1a73e8; color: white; }
+    .item { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: 8px; margin-bottom: 4px; cursor: pointer; transition: background 0.15s; }
+    .item:hover { background: #f1f3f4; }
+    .item.folder { font-weight: 500; }
+    .item .icon { font-size: 24px; width: 32px; text-align: center; }
+    .item .name { flex: 1; }
+    .item .action { opacity: 0; }
+    .item:hover .action { opacity: 1; }
+    .item.video .action { opacity: 1; }
+    #list { min-height: 120px; }
+    #list.empty { color: #5f6368; padding: 24px; text-align: center; }
+    #list.loading { color: #5f6368; padding: 24px; text-align: center; }
+    .message { padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; }
+    .message.error { background: #fce8e6; color: #c5221f; }
+    .message.success { background: #e6f4ea; color: #137333; }
+    .message.info { background: #e8f0fe; color: #1967d2; }
+    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 100; align-items: center; justify-content: center; padding: 24px; }
+    .modal-overlay.show { display: flex; }
+    .modal { background: white; border-radius: 12px; max-width: 560px; width: 100%; padding: 32px; box-shadow: 0 4px 24px rgba(0,0,0,0.15); }
+    .modal h3 { margin: 0 0 16px; font-size: 18px; }
+    .form-group { margin-bottom: 16px; }
+    .form-group label { display: block; font-size: 14px; font-weight: 500; margin-bottom: 6px; color: #3c4043; }
+    .form-group input, .form-group textarea { width: 100%; padding: 10px 12px; border: 1px solid #dadce0; border-radius: 8px; font-size: 14px; }
+    .form-group input:focus, .form-group textarea:focus { outline: none; border-color: #1a73e8; }
+    .form-group textarea { min-height: 80px; resize: vertical; }
+    .form-group .hint { font-size: 12px; color: #5f6368; margin-top: 4px; }
+    .platforms-grid { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 6px; }
+    .platforms-grid label { display: flex; align-items: center; gap: 6px; cursor: pointer; font-weight: normal; }
+    .platforms-grid input[type="checkbox"] { width: 18px; height: 18px; }
+    .modal-actions { display: flex; gap: 12px; justify-content: flex-end; margin-top: 24px; }
+  </style>
+</head>
+<body>
+  <h1>Video Publisher</h1>
+  <div class="toolbar">
+    <a id="auth-link" href="/auth" class="btn btn-primary">Conectar Google Drive</a>
+    <a id="logout-link" href="/auth/logout" class="btn" style="display:none;">Desconectar</a>
+    <span id="auth-status" class="connected" style="display:none;">Conectado a Google Drive</span>
+  </div>
+
+  <div id="message"></div>
+
+  <div id="drive-section" style="display:none;">
+    <div class="breadcrumb" id="breadcrumb">
+      <a href="#" data-folder="root">Mi unidad</a>
+    </div>
+    <div class="view-tabs">
+      <button type="button" class="tab active" data-folder="root">Mi unidad</button>
+      <button type="button" class="tab" data-folder="shared">Compartidos conmigo</button>
+    </div>
+    <div id="list" class="empty">Cargando...</div>
+  </div>
+
+  <div id="modal-overlay" class="modal-overlay">
+    <div class="modal">
+      <h3 id="modal-title">Publicar vídeo</h3>
+      <form id="publish-form">
+        <input type="hidden" id="drive-file-id" name="drive_file_id">
+        <input type="hidden" id="drive-file-name" name="drive_file_name">
+        <div class="form-group">
+          <label for="title">Título *</label>
+          <input type="text" id="title" name="title" required placeholder="Título de la publicación">
+        </div>
+        <div class="form-group">
+          <label>Plataformas *</label>
+          <div class="platforms-grid">
+            <label><input type="checkbox" name="platform" value="linkedin"> LinkedIn</label>
+            <label><input type="checkbox" name="platform" value="youtube"> YouTube</label>
+            <label><input type="checkbox" name="platform" value="x"> X</label>
+            <label><input type="checkbox" name="platform" value="instagram_reel"> Instagram Reel</label>
+            <label><input type="checkbox" name="platform" value="threads"> Threads</label>
+            <label><input type="checkbox" name="platform" value="tiktok"> TikTok</label>
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="description">Descripción</label>
+          <textarea id="description" name="description" placeholder="Descripción del vídeo"></textarea>
+        </div>
+        <div class="form-group">
+          <label for="scheduled_at">Programar para</label>
+          <input type="datetime-local" id="scheduled_at" name="scheduled_at" placeholder="Dejar vacío para publicar lo antes posible">
+          <div class="hint">Opcional. Vacío = publicar lo antes posible</div>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn" id="modal-cancel">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Añadir a la cola</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    const authLink = document.getElementById('auth-link');
+    const logoutLink = document.getElementById('logout-link');
+    const authStatus = document.getElementById('auth-status');
+    const driveSection = document.getElementById('drive-section');
+    const breadcrumb = document.getElementById('breadcrumb');
+    const listEl = document.getElementById('list');
+    const messageEl = document.getElementById('message');
+    const modalOverlay = document.getElementById('modal-overlay');
+    const publishForm = document.getElementById('publish-form');
+
+    let pathStack = [{ id: 'root', name: 'Mi unidad' }];
+
+    function showMessage(text, type = 'info') {
+      messageEl.innerHTML = text ? `<div class="message ${type}">${text}</div>` : '';
+      messageEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    function hideMessage() {
+      messageEl.innerHTML = '';
+    }
+
+    function renderBreadcrumb() {
+      breadcrumb.innerHTML = pathStack.map((p, i) => {
+        const isLast = i === pathStack.length - 1;
+        const sep = i > 0 ? '<span class="sep">›</span>' : '';
+        if (isLast) return sep + `<span>${escapeHtml(p.name)}</span>`;
+        return sep + `<a href="#" data-folder="${p.id}">${escapeHtml(p.name)}</a>`;
+      }).join('');
+    }
+
+    function escapeHtml(s) {
+      const d = document.createElement('div');
+      d.textContent = s;
+      return d.innerHTML;
+    }
+
+    async function safeJson(resp) {
+      const ct = resp.headers.get('content-type') || '';
+      if (!ct.includes('application/json')) throw new Error(resp.ok ? 'Respuesta inválida' : `Error ${resp.status}`);
+      return resp.json();
+    }
+
+    let defaultFolderId = null;
+
+    async function loadFiles(folderId = 'root', opts = {}) {
+      listEl.className = 'loading';
+      listEl.textContent = 'Cargando...';
+      hideMessage();
+
+      const resp = await fetch(`/api/drive/files?folder=${encodeURIComponent(folderId)}`);
+      let data;
+      try { data = await safeJson(resp); } catch { data = { error: 'Error del servidor' }; }
+
+      if (resp.status === 401) {
+        authLink.style.display = 'inline-flex';
+        logoutLink.style.display = 'none';
+        authStatus.style.display = 'none';
+        driveSection.style.display = 'none';
+        listEl.className = 'empty';
+        listEl.textContent = 'Conecta Google Drive para ver tus carpetas y vídeos.';
+        return;
+      }
+
+      if (!resp.ok) {
+        listEl.className = 'empty';
+        listEl.textContent = 'No se pudo cargar el contenido.';
+        showMessage(data.error || 'Error al conectar con Drive', 'error');
+        return;
+      }
+
+      authLink.style.display = 'none';
+      logoutLink.style.display = 'inline-flex';
+      authStatus.style.display = 'inline';
+      driveSection.style.display = 'block';
+
+      const { files, folder } = data;
+
+      if (opts.fromUrl && folder) {
+        pathStack = [{ id: 'root', name: 'Mi unidad' }, { id: folder.id, name: folder.name }];
+        renderBreadcrumb();
+        updateTabs('root');
+      }
+      updateTabs(pathStack[0].id);
+
+      listEl.className = '';
+
+      if (!files || files.length === 0) {
+        listEl.className = 'empty';
+        const isRoot = folderId === 'root';
+        const isShared = folderId === 'shared';
+        listEl.innerHTML = isRoot
+          ? '<p>No hay carpetas ni vídeos en la raíz de Mi unidad.</p><p>¿Los tienes en otra ubicación? Prueba <strong>Compartidos conmigo</strong> o crea carpetas en Drive.</p>'
+          : isShared
+            ? '<p>No tienes archivos ni carpetas compartidos contigo.</p>'
+            : '<p>Esta carpeta está vacía.</p>';
+        return;
+      }
+
+      const folders = files.filter(f => f.isFolder);
+      const videos = files.filter(f => !f.isFolder);
+
+      listEl.innerHTML = [
+        ...folders.map(f => `
+          <div class="item folder" data-id="${f.id}" data-name="${escapeHtml(f.name)}" data-folder="true">
+            <span class="icon">📁</span>
+            <span class="name">${escapeHtml(f.name)}</span>
+          </div>
+        `),
+        ...videos.map(f => `
+          <div class="item video" data-id="${f.id}" data-name="${escapeHtml(f.name)}" data-folder="false">
+            <span class="icon">🎬</span>
+            <span class="name">${escapeHtml(f.name)}</span>
+            <button type="button" class="btn btn-primary action" data-id="${f.id}" data-name="${escapeHtml(f.name)}">Publicar</button>
+          </div>
+        `)
+      ].join('');
+    }
+
+    listEl.addEventListener('click', (e) => {
+      const item = e.target.closest('.item');
+      if (!item) return;
+      if (e.target.tagName === 'BUTTON') return;
+
+      const isFolder = item.dataset.folder === 'true';
+      const id = item.dataset.id;
+      const name = item.dataset.name;
+
+      if (isFolder) {
+        pathStack.push({ id, name });
+        renderBreadcrumb();
+        loadFiles(id);
+      }
+    });
+
+    listEl.addEventListener('click', (e) => {
+      if (e.target.tagName !== 'BUTTON') return;
+      e.stopPropagation();
+      const id = e.target.dataset.id;
+      const name = e.target.dataset.name;
+      document.getElementById('drive-file-id').value = id;
+      document.getElementById('drive-file-name').value = name;
+      document.getElementById('title').value = name;
+      document.getElementById('description').value = '';
+      document.querySelectorAll('input[name="platform"]').forEach(cb => {
+        cb.checked = cb.value === 'linkedin' || cb.value === 'youtube';
+      });
+      document.getElementById('scheduled_at').value = '';
+      modalOverlay.classList.add('show');
+    });
+
+    breadcrumb.addEventListener('click', (e) => {
+      e.preventDefault();
+      const a = e.target.closest('a[data-folder]');
+      if (!a) return;
+      const folderId = a.dataset.folder;
+      const idx = pathStack.findIndex(p => p.id === folderId);
+      if (idx >= 0) {
+        pathStack = pathStack.slice(0, idx + 1);
+        renderBreadcrumb();
+        updateTabs(pathStack[0].id);
+        loadFiles(folderId);
+      }
+    });
+
+    function updateTabs(activeId) {
+      document.querySelectorAll('.view-tabs .tab').forEach(tab => {
+        tab.classList.toggle('active', tab.dataset.folder === activeId);
+      });
+    }
+
+    document.querySelector('.view-tabs').addEventListener('click', (e) => {
+      const tab = e.target.closest('.tab');
+      if (!tab) return;
+      const folderId = tab.dataset.folder;
+      pathStack = folderId === 'root'
+        ? [{ id: 'root', name: 'Mi unidad' }]
+        : [{ id: 'shared', name: 'Compartidos conmigo' }];
+      renderBreadcrumb();
+      updateTabs(folderId);
+      loadFiles(folderId);
+    });
+
+    document.getElementById('modal-cancel').onclick = () => modalOverlay.classList.remove('show');
+    modalOverlay.addEventListener('click', (e) => { if (e.target === modalOverlay) modalOverlay.classList.remove('show'); });
+
+    publishForm.onsubmit = async (e) => {
+      e.preventDefault();
+      const title = document.getElementById('title').value.trim();
+      const drive_file_id = document.getElementById('drive-file-id').value;
+      const drive_file_name = document.getElementById('drive-file-name').value;
+      const description = document.getElementById('description').value.trim();
+      const platforms = [...document.querySelectorAll('input[name="platform"]:checked')].map(cb => cb.value);
+      if (!platforms.length) {
+        showMessage('Selecciona al menos una plataforma', 'error');
+        return;
+      }
+      const scheduledAtInput = document.getElementById('scheduled_at').value;
+      const scheduled_at = scheduledAtInput ? new Date(scheduledAtInput).toISOString() : null;
+
+      const resp = await fetch('/api/queue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, description, drive_file_id, drive_file_name, platforms, scheduled_at, options: {} })
+      });
+      let json = {};
+      try { json = await safeJson(resp); } catch {}
+      if (!resp.ok) {
+        showMessage(json.error || 'No se pudo añadir a la cola', 'error');
+        return;
+      }
+      modalOverlay.classList.remove('show');
+      showMessage(`«${title}» añadido a la cola. n8n lo publicará cuando lo procese.`, 'success');
+      setTimeout(hideMessage, 5000);
+    };
+
+    const params = new URLSearchParams(location.search);
+    if (params.get('error')) {
+      const errMap = { no_code: 'Google no devolvió autorización.', auth_failed: 'La autorización falló. Intenta de nuevo.' };
+      showMessage(errMap[params.get('error')] || 'Error de autorización', 'error');
+      history.replaceState({}, '', location.pathname);
+    }
+
+    (async function init() {
+      if (location.protocol === 'file:') {
+        showMessage('Abre la app en http://localhost:3000 (ejecuta npm start antes)', 'error');
+        listEl.textContent = 'Debes acceder vía el servidor (npm start).';
+        return;
+      }
+      try {
+        const configResp = await fetch('/api/config');
+        const config = await safeJson(configResp);
+        defaultFolderId = config.defaultFolderId || null;
+      } catch (e) {
+        showMessage('No se pudo conectar al servidor. ¿Está corriendo npm start?', 'error');
+        listEl.textContent = 'Error de conexión. Ejecuta npm start en la terminal.';
+        return;
+      }
+      renderBreadcrumb();
+      const startFolder = defaultFolderId || 'root';
+      pathStack = defaultFolderId ? [{ id: 'root', name: 'Mi unidad' }, { id: defaultFolderId, name: '…' }] : [{ id: 'root', name: 'Mi unidad' }];
+      renderBreadcrumb();
+      await loadFiles(startFolder, { fromUrl: !!defaultFolderId });
+    })();
+  </script>
+</body>
+</html>

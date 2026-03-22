@@ -1,0 +1,17 @@
+{
+  "name": "video-publisher",
+  "version": "1.0.0",
+  "description": "POC: Conectar Google Drive, listar vídeos y encolar publicaciones en Supabase",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0",
+    "body-parser": "^1.20.2",
+    "cookie-session": "^2.1.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0",
+    "googleapis": "^144.0.0"
+  }
+}
