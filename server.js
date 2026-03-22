@@ -9,23 +9,25 @@ const { createClient } = require('@supabase/supabase-js');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Validar variables de entorno
+// Validar variables de entorno (en Vercel no usamos process.exit para ver el error)
 const required = ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'SUPABASE_URL', 'SUPABASE_SERVICE_KEY', 'SESSION_SECRET'];
-for (const key of required) {
-  if (!process.env[key]) {
-    console.error(`Falta variable de entorno: ${key}`);
-    process.exit(1);
-  }
+const missingVars = required.filter(k => !process.env[k]);
+if (missingVars.length && require.main === module) {
+  console.error('Faltan variables de entorno:', missingVars.join(', '));
+  process.exit(1);
 }
 
 const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI
   || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}/api/auth/callback` : `http://localhost:${PORT}/api/auth/callback`);
 
-// Supabase client (solo backend)
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_KEY
-);
+// Supabase client (solo backend) - solo si las vars existen para evitar crash al cargar
+let supabase = null;
+function getSupabase() {
+  if (!supabase && process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY) {
+    supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
+  }
+  return supabase;
+}
 
 // OAuth2 client
 function getOAuth2Client() {
@@ -38,6 +40,18 @@ function getOAuth2Client() {
 
 // Middleware
 app.use(bodyParser.json());
+
+// Si faltan vars de entorno (ej. en Vercel), responder con error claro en vez de crash
+app.use((req, res, next) => {
+  const missing = required.filter(k => !process.env[k]);
+  if (missing.length) {
+    return res.status(503).json({
+      error: 'Configuración incompleta',
+      message: `Faltan variables de entorno en Vercel: ${missing.join(', ')}. Añádelas en Project → Settings → Environment Variables.`
+    });
+  }
+  next();
+});
 app.use(cookieSession({
   name: 'session',
   keys: [process.env.SESSION_SECRET],
@@ -166,7 +180,7 @@ app.post('/api/queue', async (req, res) => {
     return res.status(400).json({ error: 'Faltan campos obligatorios: title, drive_file_id, drive_file_name' });
   }
   try {
-    const { data, error } = await supabase
+    const { data, error } = await getSupabase()
       .from('publish_queue')
       .insert({
         title,
