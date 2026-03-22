@@ -244,10 +244,11 @@ const DEFAULT_FOLDER = process.env.DEFAULT_DRIVE_FOLDER_ID || '1y6rIQTNtqeRaq-z8
 app.get('/api/config', (req, res) => {
   const hasRaw = !!process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
   const hasBase64 = !!process.env.GOOGLE_SERVICE_ACCOUNT_JSON_BASE64;
+  const googleEnvKeys = Object.keys(process.env).filter(k => k.includes('GOOGLE'));
   res.json({
     defaultFolderId: DEFAULT_FOLDER,
     useServiceAccountDrive: USE_SA_DRIVE,
-    _debug: { hasRaw, hasBase64 }  // diagnostico: ¿qué variable está definida?
+    _debug: { hasRaw, hasBase64, googleEnvKeys }  // googleEnvKeys: vars GOOGLE* que ve el servidor
   });
 });
 
