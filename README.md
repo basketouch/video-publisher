@@ -64,6 +64,16 @@ Guarda los tokens OAuth de Drive+YouTube para que n8n pueda publicar sin sesión
 5. **Habilita YouTube Data API v3** en API y servicios → Biblioteca → "YouTube Data API v3" → Habilitar
 6. Scopes usados: `drive.readonly`, `youtube.upload`, `youtube` (para subir a YouTube)
 
+### Modo Drive empresa + YouTube personal
+
+Si Drive es cuenta de empresa y YouTube es personal:
+
+1. Crear **Service Account** en Google Cloud → Credenciales → Crear credenciales → Cuenta de servicio
+2. Descargar la clave JSON
+3. Compartir la carpeta de Drive (empresa) con el email de la Service Account (ej. `xxx@proyecto.iam.gserviceaccount.com`)
+4. Añadir en `.env` o Vercel: `GOOGLE_SERVICE_ACCOUNT_JSON` con el contenido del JSON
+5. La app listará Drive con la SA (sin conectar). Solo hay que **Conectar YouTube** (OAuth) para subir a tu canal personal
+
 ## Uso
 
 ```bash
@@ -73,8 +83,8 @@ npm start
 
 Abre http://localhost:3000:
 
-1. **Conectar Google Drive + YouTube** → autoriza la app (Drive para listar, YouTube para subir)
-2. Ver la lista de vídeos
+1. **Conectar** → Con SA Drive: solo YouTube. Sin SA: Drive + YouTube
+2. Ver la lista de vídeos (Drive empresa si usas SA; tu Drive si no)
 3. **Seleccionar** uno → completar título, descripción, plataformas (YouTube, etc.), fecha
 4. Se crea una fila en `publish_queue` con `status=pending`
 5. n8n (cada 5 min) llama al backend, que descarga de Drive y sube a YouTube
@@ -100,6 +110,7 @@ Abre http://localhost:3000:
      - `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`
      - `SESSION_SECRET` (genera uno seguro, ej: `openssl rand -hex 32`)
      - `DEFAULT_DRIVE_FOLDER_ID` (opcional)
+     - `GOOGLE_SERVICE_ACCOUNT_JSON` (opcional; modo Drive empresa: pega el JSON completo)
    - Despliega
 
 3. **Google Cloud Console**

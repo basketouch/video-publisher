@@ -75,7 +75,7 @@
   <div class="toolbar">
     <a id="auth-link" href="/auth" class="btn btn-primary">Conectar Google Drive</a>
     <a id="logout-link" href="/auth/logout" class="btn" style="display:none;">Desconectar Drive</a>
-    <span id="auth-status" class="connected" style="display:none;">Conectado a Google Drive</span>
+    <span id="auth-status" class="connected" style="display:none;"></span>
     <a href="#" id="admin-logout" class="btn" style="display:none; margin-left:auto;">Cerrar sesión</a>
   </div>
 
@@ -175,6 +175,11 @@
     }
 
     let defaultFolderId = null;
+    let useServiceAccountDrive = false;
+
+    function getConnectLabel() { return useServiceAccountDrive ? 'Conectar YouTube' : 'Conectar Google Drive'; }
+    function getDisconnectLabel() { return useServiceAccountDrive ? 'Desconectar YouTube' : 'Desconectar Drive'; }
+    function getConnectedLabel() { return useServiceAccountDrive ? 'Conectado a YouTube' : 'Conectado a Google Drive'; }
 
     async function loadFiles(folderId = 'root', opts = {}) {
       listEl.className = 'loading';
@@ -186,13 +191,17 @@
       try { data = await safeJson(resp); } catch { data = { error: 'Error del servidor' }; }
 
       if (resp.status === 401) {
+        authLink.textContent = getConnectLabel();
         authLink.style.display = 'inline-flex';
+        logoutLink.textContent = getDisconnectLabel();
         logoutLink.style.display = 'none';
         authStatus.style.display = 'none';
         driveSection.style.display = 'none';
         document.getElementById('admin-logout').style.display = 'inline-flex';
         listEl.className = 'empty';
-        listEl.textContent = 'Conecta Google Drive para ver tus carpetas y vídeos.';
+        listEl.textContent = useServiceAccountDrive
+          ? 'Conecta YouTube para poder añadir vídeos a la cola. (Drive se lista automáticamente desde la cuenta de empresa.)'
+          : 'Conecta Google Drive para ver tus carpetas y vídeos.';
         return;
       }
 
@@ -203,9 +212,23 @@
         return;
       }
 
-      authLink.style.display = 'none';
-      logoutLink.style.display = 'inline-flex';
-      authStatus.style.display = 'inline';
+      // Con USE_SA_DRIVE, Drive funciona sin OAuth; la conexión es solo para YouTube
+      if (useServiceAccountDrive) {
+        const statusResp = await fetch('/api/auth/status');
+        const status = await safeJson(statusResp);
+        const connected = !!status.connected;
+        authLink.textContent = connected ? 'Cambiar cuenta YouTube' : 'Conectar YouTube';
+        authLink.style.display = 'inline-flex';  // Siempre visible para conectar/cambiar cuenta
+        logoutLink.textContent = getDisconnectLabel();
+        logoutLink.style.display = connected ? 'inline-flex' : 'none';
+        authStatus.textContent = getConnectedLabel();
+        authStatus.style.display = connected ? 'inline' : 'none';
+      } else {
+        authLink.style.display = 'none';
+        logoutLink.style.display = 'inline-flex';
+        authStatus.textContent = getConnectedLabel();
+        authStatus.style.display = 'inline';
+      }
       driveSection.style.display = 'block';
       document.getElementById('admin-logout').style.display = 'inline-flex';
 
@@ -394,6 +417,10 @@
         const configResp = await fetch('/api/config');
         const config = await safeJson(configResp);
         defaultFolderId = config.defaultFolderId || null;
+        useServiceAccountDrive = !!config.useServiceAccountDrive;
+        authLink.textContent = getConnectLabel();
+        logoutLink.textContent = getDisconnectLabel();
+        authStatus.textContent = getConnectedLabel();
       } catch (e) {
         showMessage('No se pudo cargar la configuración', 'error');
         return;

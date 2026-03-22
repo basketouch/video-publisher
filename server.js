@@ -48,6 +48,23 @@ function getRedirectUri(req) {
   return `${protocol}://${host}/api/auth/callback`;
 }
 
+// Service Account para Drive (cuenta empresa) - cuando existe GOOGLE_SERVICE_ACCOUNT_JSON
+const USE_SA_DRIVE = !!process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+function getDriveServiceAccountClient() {
+  if (!USE_SA_DRIVE || !process.env.GOOGLE_SERVICE_ACCOUNT_JSON) return null;
+  try {
+    const creds = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+    const auth = new google.auth.GoogleAuth({
+      credentials: creds,
+      scopes: ['https://www.googleapis.com/auth/drive.readonly']
+    });
+    return auth;
+  } catch (e) {
+    console.error('Error parseando GOOGLE_SERVICE_ACCOUNT_JSON:', e.message);
+    return null;
+  }
+}
+
 // Trust proxy (necesario en Vercel para que secure cookies y X-Forwarded-* funcionen)
 app.set('trust proxy', 1);
 
@@ -148,21 +165,26 @@ app.use(requireAdmin);
 
 // --- Rutas protegidas ---
 
-// Scopes: Drive (leer/descargar) + YouTube (subir)
-const OAUTH_SCOPES = [
+// Scopes: con SA para Drive → solo YouTube; sin SA → Drive + YouTube
+const OAUTH_SCOPES_DRIVE_AND_YOUTUBE = [
   'https://www.googleapis.com/auth/drive.readonly',
   'https://www.googleapis.com/auth/youtube.upload',
   'https://www.googleapis.com/auth/youtube'
 ];
+const OAUTH_SCOPES_YOUTUBE_ONLY = [
+  'https://www.googleapis.com/auth/youtube.upload',
+  'https://www.googleapis.com/auth/youtube'
+];
 
-// Redirige a Google para autorizar Drive + YouTube
+// Redirige a Google: solo YouTube si usamos SA para Drive; Drive+YouTube si no
 app.get('/auth', (req, res) => {
   const redirectUri = getRedirectUri(req);
   const oauth2Client = getOAuth2Client(redirectUri);
+  const scopes = USE_SA_DRIVE ? OAUTH_SCOPES_YOUTUBE_ONLY : OAUTH_SCOPES_DRIVE_AND_YOUTUBE;
   const authUrl = oauth2Client.generateAuthUrl({
     access_type: 'offline',
-    scope: OAUTH_SCOPES,
-    prompt: 'consent'
+    scope: scopes,
+    prompt: 'select_account consent'  // select_account: elegir cuenta personal para YouTube
   });
   res.redirect(authUrl);
 });
@@ -202,8 +224,14 @@ app.get('/auth/logout', (req, res) => {
 const DEFAULT_FOLDER = process.env.DEFAULT_DRIVE_FOLDER_ID || '1y6rIQTNtqeRaq-z8Vw8kaWFvy_2moRtD';
 app.get('/api/config', (req, res) => {
   res.json({
-    defaultFolderId: DEFAULT_FOLDER
+    defaultFolderId: DEFAULT_FOLDER,
+    useServiceAccountDrive: USE_SA_DRIVE
   });
+});
+
+// Estado de conexión OAuth (para YouTube cuando USE_SA_DRIVE, o Drive+YouTube si no)
+app.get('/api/auth/status', (req, res) => {
+  res.json({ connected: !!req.session?.tokens });
 });
 
 // Refresca tokens si han caducado y devuelve oauth2Client listo
@@ -218,16 +246,22 @@ async function getDriveClient(req) {
 }
 
 // Lista carpetas y vídeos de Drive (con navegación por carpeta)
+// Con USE_SA_DRIVE: usa Service Account (no requiere sesión OAuth)
+// Sin USE_SA_DRIVE: usa OAuth del usuario
 app.get('/api/drive/files', async (req, res) => {
-  const oauth2Client = await getDriveClient(req);
-  if (!oauth2Client) {
-    return res.status(401).json({ error: 'Conecta Google Drive para continuar' });
+  let auth = null;
+  if (USE_SA_DRIVE) {
+    auth = getDriveServiceAccountClient();
+    if (!auth) return res.status(503).json({ error: 'Service Account no configurado correctamente' });
+  } else {
+    auth = await getDriveClient(req);
+    if (!auth) return res.status(401).json({ error: 'Conecta Google Drive para continuar' });
   }
   try {
     const defaultFolder = process.env.DEFAULT_DRIVE_FOLDER_ID || DEFAULT_FOLDER;
     const parentId = req.query.folder || defaultFolder;
     const isShared = parentId === 'shared';
-    const drive = google.drive({ version: 'v3', auth: oauth2Client });
+    const drive = google.drive({ version: 'v3', auth });
 
     let q;
     if (isShared) {
@@ -274,9 +308,13 @@ app.get('/api/drive/files', async (req, res) => {
 });
 
 // Inserta fila en publish_queue de Supabase
+// Con USE_SA_DRIVE: solo se necesita YouTube (tokens); sin SA: Drive+YouTube
 app.post('/api/queue', async (req, res) => {
-  if (!req.session?.tokens) {
-    return res.status(401).json({ error: 'No autorizado. Conecta Google Drive primero.' });
+  const hasTokens = !!req.session?.tokens;
+  if (!hasTokens) {
+    return res.status(401).json({
+      error: USE_SA_DRIVE ? 'Conecta YouTube para continuar.' : 'Conecta Google Drive primero.'
+    });
   }
   const { title, description, drive_file_id, drive_file_name, platforms, scheduled_at, options } = req.body;
   if (!title || !drive_file_id || !drive_file_name) {
@@ -348,11 +386,18 @@ app.post('/api/process_publish', async (req, res) => {
     if (!oauth2Client) {
       return res.json({
         success: false,
-        error: 'No hay tokens de Google guardados. Conecta Drive+YouTube en la web y añade un vídeo a la cola de nuevo.'
+        error: USE_SA_DRIVE
+          ? 'No hay tokens de YouTube guardados. Conecta YouTube en la web y añade un vídeo a la cola de nuevo.'
+          : 'No hay tokens de Google guardados. Conecta Drive+YouTube en la web y añade un vídeo a la cola de nuevo.'
       });
     }
 
-    const drive = google.drive({ version: 'v3', auth: oauth2Client });
+    // Drive: SA (empresa) o OAuth; YouTube: siempre OAuth (canal personal)
+    const driveAuth = USE_SA_DRIVE ? getDriveServiceAccountClient() : oauth2Client;
+    if (!driveAuth) {
+      return res.json({ success: false, error: 'Service Account no configurado para Drive.' });
+    }
+    const drive = google.drive({ version: 'v3', auth: driveAuth });
     const youtube = google.youtube({ version: 'v3', auth: oauth2Client });
 
     // 1. Metadata del archivo en Drive
