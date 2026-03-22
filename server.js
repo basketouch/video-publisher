@@ -48,19 +48,38 @@ function getRedirectUri(req) {
   return `${protocol}://${host}/api/auth/callback`;
 }
 
-// Service Account para Drive (cuenta empresa) - cuando existe GOOGLE_SERVICE_ACCOUNT_JSON
-const USE_SA_DRIVE = !!process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
-function getDriveServiceAccountClient() {
-  if (!USE_SA_DRIVE || !process.env.GOOGLE_SERVICE_ACCOUNT_JSON) return null;
+// Service Account para Drive (cuenta empresa)
+// Soporta GOOGLE_SERVICE_ACCOUNT_JSON (raw) o GOOGLE_SERVICE_ACCOUNT_JSON_BASE64 (más fiable en Vercel)
+function parseServiceAccountCreds() {
+  const base64 = process.env.GOOGLE_SERVICE_ACCOUNT_JSON_BASE64;
+  const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+  let jsonStr;
+  if (base64) {
+    try { jsonStr = Buffer.from(base64, 'base64').toString('utf8'); } catch (e) { return null; }
+  } else if (raw) {
+    jsonStr = raw;
+  } else {
+    return null;
+  }
   try {
-    const creds = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+    return JSON.parse(jsonStr);
+  } catch (e) {
+    console.error('Error parseando Service Account JSON:', e.message);
+    return null;
+  }
+}
+const _saCreds = parseServiceAccountCreds();
+const USE_SA_DRIVE = !!_saCreds;
+function getDriveServiceAccountClient() {
+  if (!_saCreds) return null;
+  try {
     const auth = new google.auth.GoogleAuth({
-      credentials: creds,
+      credentials: _saCreds,
       scopes: ['https://www.googleapis.com/auth/drive.readonly']
     });
     return auth;
   } catch (e) {
-    console.error('Error parseando GOOGLE_SERVICE_ACCOUNT_JSON:', e.message);
+    console.error('Error creando Service Account client:', e.message);
     return null;
   }
 }
