@@ -41,7 +41,7 @@ create table publish_queue (
 |----------|-------------|
 | `GOOGLE_CLIENT_ID` | Client ID de OAuth en Google Cloud |
 | `GOOGLE_CLIENT_SECRET` | Client secret de OAuth |
-| `GOOGLE_REDIRECT_URI` | `http://localhost:3000/api/auth/callback` (o `https://tu-app.vercel.app/api/auth/callback` en prod) |
+| `GOOGLE_REDIRECT_URI` | `http://localhost:3000/api/auth/callback` (o `https://video.basketouch.com/api/auth/callback` en prod) |
 | `SUPABASE_URL` | URL del proyecto Supabase |
 | `SUPABASE_SERVICE_KEY` | Service role key (solo backend) |
 | `SESSION_SECRET` | Secreto para cookies de sesión |
@@ -51,7 +51,7 @@ create table publish_queue (
 1. Crea un proyecto o usa uno existente
 2. API y servicios → Credenciales → Crear credenciales → ID de cliente OAuth
 3. Tipo: Aplicación web
-4. URIs de redirección autorizados: `http://localhost:3000/api/auth/callback` (añade también tu URL de Vercel en producción)
+4. URIs de redirección autorizados: `http://localhost:3000/api/auth/callback` y `https://video.basketouch.com/api/auth/callback` (producción)
 5. Scope usado: `https://www.googleapis.com/auth/drive.readonly`
 
 ## Uso
@@ -85,14 +85,14 @@ n8n puede hacer polling o usar webhooks sobre esa tabla para publicar en LinkedI
    - Ve a [vercel.com](https://vercel.com) e importa el repo de GitHub
    - Añade las variables de entorno en Vercel → Project → Settings → Environment Variables:
      - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
-     - `GOOGLE_REDIRECT_URI` = `https://tu-app.vercel.app/api/auth/callback` (ajusta al dominio final)
+     - `GOOGLE_REDIRECT_URI` = `https://video.basketouch.com/api/auth/callback`
      - `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`
      - `SESSION_SECRET` (genera uno seguro, ej: `openssl rand -hex 32`)
      - `DEFAULT_DRIVE_FOLDER_ID` (opcional)
    - Despliega
 
 3. **Google Cloud Console**
-   - Añade en "URIs de redirección autorizados": `https://tu-app.vercel.app/api/auth/callback`
+   - Añade en "URIs de redirección autorizados": `https://video.basketouch.com/api/auth/callback`
 
 4. **n8n**
-   - En el workflow "Call Backend Publish", cambia la URL de `http://localhost:3000/api/process_publish` a `https://tu-app.vercel.app/api/process_publish`
+   - El workflow "Call Backend Publish" ya usa `https://video.basketouch.com/api/process_publish`
