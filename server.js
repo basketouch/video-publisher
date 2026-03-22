@@ -29,13 +29,20 @@ function getSupabase() {
   return supabase;
 }
 
-// OAuth2 client
-function getOAuth2Client() {
+// OAuth2 client (redirectUri opcional: si no se pasa, usa env)
+function getOAuth2Client(redirectUri) {
   return new google.auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_CLIENT_SECRET,
-    GOOGLE_REDIRECT_URI
+    redirectUri || GOOGLE_REDIRECT_URI
   );
+}
+
+// Obtiene redirect_uri desde la petición (evita mismatch con dominios custom)
+function getRedirectUri(req) {
+  const protocol = req.protocol || 'https';
+  const host = req.get('host') || req.get('x-forwarded-host') || 'localhost:3000';
+  return `${protocol}://${host}/api/auth/callback`;
 }
 
 // Trust proxy (necesario en Vercel para que secure cookies y X-Forwarded-* funcionen)
@@ -68,7 +75,8 @@ app.use(cookieSession({
 
 // Redirige a Google para autorizar Drive (solo cuando no hay sesión)
 app.get('/auth', (req, res) => {
-  const oauth2Client = getOAuth2Client();
+  const redirectUri = getRedirectUri(req);
+  const oauth2Client = getOAuth2Client(redirectUri);
   const authUrl = oauth2Client.generateAuthUrl({
     access_type: 'offline',
     scope: ['https://www.googleapis.com/auth/drive.readonly'],
@@ -84,7 +92,8 @@ app.get('/api/auth/callback', async (req, res) => {
     return res.redirect('/?error=no_code');
   }
   try {
-    const oauth2Client = getOAuth2Client();
+    const redirectUri = getRedirectUri(req);
+    const oauth2Client = getOAuth2Client(redirectUri);
     const { tokens } = await oauth2Client.getToken(code);
     req.session.tokens = tokens;
     res.redirect('/');
@@ -107,12 +116,13 @@ app.get('/api/config', (req, res) => {
   });
 });
 
-// Debug OAuth: ver qué redirect_uri usa la app (borrar en producción)
+// Debug OAuth: ver qué redirect_uri usa la app según el host de la petición
 app.get('/api/debug-oauth', (req, res) => {
   res.json({
-    redirect_uri: GOOGLE_REDIRECT_URI,
-    has_redirect_var: !!process.env.GOOGLE_REDIRECT_URI,
-    vercel_url: process.env.VERCEL_URL || null
+    redirect_uri_from_request: getRedirectUri(req),
+    redirect_uri_from_env: GOOGLE_REDIRECT_URI,
+    host: req.get('host'),
+    protocol: req.protocol
   });
 });
 
