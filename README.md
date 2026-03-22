@@ -99,4 +99,9 @@ n8n puede hacer polling o usar webhooks sobre esa tabla para publicar en LinkedI
    - Añade en "URIs de redirección autorizados": `https://video.basketouch.com/api/auth/callback`
 
 4. **n8n**
-   - El workflow "Call Backend Publish" ya usa `https://video.basketouch.com/api/process_publish`
+   - Importa `publish_queue_n8n_workflow_fixed.json` o `publish_queue_n8n_workflow_legacy.json`
+   - Configura la variable de entorno `SUPABASE_SERVICE_KEY` en n8n (Settings → Variables)
+   - URLs ya configuradas:
+     - Supabase: `https://piavkbvjdjxxsvgzofao.supabase.co`
+     - Backend: `https://video.basketouch.com/api/process_publish`
+   - El workflow corre cada 5 min, procesa filas `pending` y llama al backend

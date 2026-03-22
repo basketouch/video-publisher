@@ -3,124 +3,118 @@
   "nodes": [
     {
       "parameters": {
-        "rule": {
-          "interval": [{ "field": "minutes", "minutesInterval": 5 }]
+        "triggerTimes": {
+          "item": [{ "hour": "*/5", "minute": "0", "mode": "every" }]
         }
       },
       "name": "Cron",
-      "type": "n8n-nodes-base.scheduleTrigger",
-      "typeVersion": 1.2,
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
       "position": [250, 300]
     },
     {
       "parameters": {
-        "method": "GET",
+        "requestMethod": "GET",
         "url": "https://piavkbvjdjxxsvgzofao.supabase.co/rest/v1/publish_queue?status=eq.pending",
-        "sendHeaders": true,
+        "responseFormat": "json",
         "headerParameters": {
           "parameters": [
             { "name": "apikey", "value": "={{$env.SUPABASE_SERVICE_KEY}}" },
-            { "name": "Authorization", "value": "=Bearer {{$env.SUPABASE_SERVICE_KEY}}" },
+            { "name": "Authorization", "value": "Bearer {{$env.SUPABASE_SERVICE_KEY}}" },
             { "name": "Accept", "value": "application/json" }
           ]
         }
       },
       "name": "Get Pending Rows",
       "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
+      "typeVersion": 2,
       "position": [500, 300]
     },
     {
       "parameters": { "batchSize": 1 },
       "name": "SplitInBatches",
       "type": "n8n-nodes-base.splitInBatches",
-      "typeVersion": 3,
+      "typeVersion": 1,
       "position": [750, 300]
     },
     {
       "parameters": {
-        "assignments": {
-          "assignments": [
-            { "id": "id", "name": "id", "value": "={{ $json.id }}", "type": "string" },
-            { "id": "drive_file_id", "name": "drive_file_id", "value": "={{ $json.drive_file_id }}", "type": "string" },
-            { "id": "drive_file_name", "name": "drive_file_name", "value": "={{ $json.drive_file_name }}", "type": "string" },
-            { "id": "title", "name": "title", "value": "={{ $json.title }}", "type": "string" },
-            { "id": "description", "name": "description", "value": "={{ $json.description ?? '' }}", "type": "string" },
-            { "id": "platforms", "name": "platforms", "value": "={{ JSON.stringify($json.platforms ?? []) }}", "type": "string" }
+        "values": {
+          "string": [
+            { "name": "id", "value": "={{$json[\"id\"]}}" },
+            { "name": "drive_file_id", "value": "={{$json[\"drive_file_id\"]}}" },
+            { "name": "drive_file_name", "value": "={{$json[\"drive_file_name\"]}}" },
+            { "name": "title", "value": "={{$json[\"title\"]}}" },
+            { "name": "description", "value": "={{$json[\"description\"]}}" },
+            { "name": "platforms", "value": "={{JSON.stringify($json[\"platforms\"])}}" }
           ]
         }
       },
       "name": "Prepare Payload",
       "type": "n8n-nodes-base.set",
-      "typeVersion": 3.4,
+      "typeVersion": 1,
       "position": [1000, 300]
     },
     {
       "parameters": {
-        "method": "POST",
+        "requestMethod": "POST",
         "url": "https://video.basketouch.com/api/process_publish",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ id: $json.id, drive_file_id: $json.drive_file_id, drive_file_name: $json.drive_file_name, title: $json.title, description: $json.description, platforms: typeof $json.platforms === 'string' ? JSON.parse($json.platforms) : ($json.platforms ?? []) }) }}"
+        "jsonParameters": true,
+        "bodyParametersJson": "={\"id\": $json.id, \"drive_file_id\": $json.drive_file_id, \"drive_file_name\": $json.drive_file_name, \"title\": $json.title, \"description\": $json.description, \"platforms\": JSON.parse($json.platforms)}"
       },
       "name": "Call Backend Publish",
       "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
+      "typeVersion": 2,
       "position": [1250, 300]
     },
     {
       "parameters": {
         "conditions": {
-          "conditions": [{
-            "leftValue": "={{ $json.body?.success }}",
-            "rightValue": true,
-            "operator": { "type": "boolean", "operation": "equals" }
-          }]
+          "type": "boolean",
+          "rules": [{ "value1": "={{$json[\"body\"]?.success === true}}", "operation": "equal" }]
         }
       },
       "name": "Was Success?",
       "type": "n8n-nodes-base.if",
-      "typeVersion": 2,
+      "typeVersion": 1,
       "position": [1500, 300]
     },
     {
       "parameters": {
-        "method": "PATCH",
+        "requestMethod": "PATCH",
         "url": "=https://piavkbvjdjxxsvgzofao.supabase.co/rest/v1/publish_queue?id=eq.{{ $('Prepare Payload').item.json.id }}",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={\"status\": \"published\", \"published_urls\": {{ JSON.stringify($json.body?.published_urls ?? {}) }}}",
+        "jsonParameters": true,
+        "bodyParametersJson": "={\"status\": \"published\", \"published_urls\": $json.body.published_urls }",
         "headerParameters": {
           "parameters": [
-            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
-            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "apikey", "value": "={{$env.SUPABASE_SERVICE_KEY}}" },
+            { "name": "Authorization", "value": "Bearer {{$env.SUPABASE_SERVICE_KEY}}" },
             { "name": "Content-Type", "value": "application/json" }
           ]
         }
       },
       "name": "Mark Published",
       "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
+      "typeVersion": 2,
       "position": [1750, 200]
     },
     {
       "parameters": {
-        "method": "PATCH",
+        "requestMethod": "PATCH",
         "url": "=https://piavkbvjdjxxsvgzofao.supabase.co/rest/v1/publish_queue?id=eq.{{ $('Prepare Payload').item.json.id }}",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={\"status\": \"error\", \"error\": {{ JSON.stringify(JSON.stringify($json.body ?? $json)) }}}",
+        "jsonParameters": true,
+        "bodyParametersJson": "={\"status\": \"error\", \"error\": JSON.stringify($json.body) }",
         "headerParameters": {
           "parameters": [
-            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
-            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "apikey", "value": "={{$env.SUPABASE_SERVICE_KEY}}" },
+            { "name": "Authorization", "value": "Bearer {{$env.SUPABASE_SERVICE_KEY}}" },
             { "name": "Content-Type", "value": "application/json" }
           ]
         }
       },
       "name": "Mark Error",
       "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
+      "typeVersion": 2,
       "position": [1750, 400]
     }
   ],
