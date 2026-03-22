@@ -185,9 +185,10 @@ app.get('/auth/logout', (req, res) => {
 });
 
 // Config para el frontend (carpeta por defecto)
+const DEFAULT_FOLDER = process.env.DEFAULT_DRIVE_FOLDER_ID || '1y6rIQTNtqeRaq-z8Vw8kaWFvy_2moRtD';
 app.get('/api/config', (req, res) => {
   res.json({
-    defaultFolderId: process.env.DEFAULT_DRIVE_FOLDER_ID || null
+    defaultFolderId: DEFAULT_FOLDER
   });
 });
 
@@ -209,7 +210,7 @@ app.get('/api/drive/files', async (req, res) => {
     return res.status(401).json({ error: 'Conecta Google Drive para continuar' });
   }
   try {
-    const defaultFolder = process.env.DEFAULT_DRIVE_FOLDER_ID || 'root';
+    const defaultFolder = process.env.DEFAULT_DRIVE_FOLDER_ID || DEFAULT_FOLDER;
     const parentId = req.query.folder || defaultFolder;
     const isShared = parentId === 'shared';
     const drive = google.drive({ version: 'v3', auth: oauth2Client });
