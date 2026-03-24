@@ -1,6 +1,11 @@
 require('dotenv').config();
 const express = require('express');
 const path = require('path');
+const fs = require('fs');
+const fsp = require('fs/promises');
+const os = require('os');
+const axios = require('axios');
+const FormData = require('form-data');
 const bodyParser = require('body-parser');
 const cookieSession = require('cookie-session');
 const bcrypt = require('bcryptjs');
@@ -98,6 +103,192 @@ function getDriveServiceAccountClient() {
     console.error('Error creando Service Account client:', e.message);
     return null;
   }
+}
+
+// --- Postiz (opcional): subida + /posts con integration ids del panel Postiz ---
+function parsePostizIntegrationMap() {
+  const raw = process.env.POSTIZ_INTEGRATION_MAP;
+  if (!raw || !String(raw).trim()) return {};
+  try {
+    const o = JSON.parse(raw);
+    return typeof o === 'object' && o !== null ? o : {};
+  } catch {
+    return {};
+  }
+}
+
+function postizBaseUrl() {
+  return (process.env.POSTIZ_API_BASE || 'https://api.postiz.com/public/v1').replace(/\/$/, '');
+}
+
+function getPostizIntegrationId(platform, map) {
+  const keys = platform === 'instagram_reel' ? ['instagram_reel', 'instagram'] : [platform];
+  for (const k of keys) {
+    const v = map[k];
+    if (v && typeof v === 'string' && v.trim()) return v.trim();
+  }
+  return null;
+}
+
+function resolvePublishRoute(platform, map) {
+  if (getPostizIntegrationId(platform, map)) return 'postiz';
+  if (platform === 'youtube') return 'youtube';
+  return null;
+}
+
+function youtubePrivacyForPostiz() {
+  const p = (process.env.YOUTUBE_PRIVACY || 'private').toLowerCase();
+  if (p === 'public') return 'public';
+  if (p === 'unlisted') return 'unlisted';
+  return 'private';
+}
+
+function buildPostizPostItem(platform, integrationId, title, description, media, options) {
+  const safeTitle = (title || 'Video').trim();
+  const ytTitle =
+    safeTitle.length >= 2 ? safeTitle.slice(0, 100) : `${safeTitle}..`.slice(0, 100);
+  const textBody = [title, description].filter(Boolean).join('\n\n') || safeTitle;
+  const valueWithVideo = [
+    {
+      content: (description || title || ' ').slice(0, 50000),
+      image: [{ id: media.id, path: media.path }]
+    }
+  ];
+
+  switch (platform) {
+    case 'youtube':
+      return {
+        integration: { id: integrationId },
+        value: [
+          {
+            content: description || '',
+            image: [{ id: media.id, path: media.path }]
+          }
+        ],
+        settings: {
+          __type: 'youtube',
+          title: ytTitle,
+          type: youtubePrivacyForPostiz(),
+          selfDeclaredMadeForKids: 'no'
+        }
+      };
+    case 'linkedin':
+      return {
+        integration: { id: integrationId },
+        value: valueWithVideo,
+        settings: { __type: 'linkedin' }
+      };
+    case 'x':
+      return {
+        integration: { id: integrationId },
+        value: valueWithVideo,
+        settings: { __type: 'x', who_can_reply_post: 'everyone' }
+      };
+    case 'threads':
+      return {
+        integration: { id: integrationId },
+        value: valueWithVideo,
+        settings: { __type: 'threads' }
+      };
+    case 'tiktok':
+      return {
+        integration: { id: integrationId },
+        value: valueWithVideo,
+        settings: {
+          __type: 'tiktok',
+          privacy_level: process.env.POSTIZ_TIKTOK_PRIVACY || 'PUBLIC_TO_EVERYONE',
+          duet: true,
+          stitch: true,
+          comment: true,
+          autoAddMusic: 'no',
+          brand_content_toggle: false,
+          brand_organic_toggle: false,
+          video_made_with_ai: false,
+          content_posting_method: 'DIRECT_POST'
+        }
+      };
+    case 'instagram':
+    case 'instagram_reel':
+      return {
+        integration: { id: integrationId },
+        value: valueWithVideo,
+        settings: {
+          __type: 'instagram',
+          post_type: 'post',
+          is_trial_reel: false,
+          collaborators: []
+        }
+      };
+    case 'skool': {
+      const sk = options?.skool || options?.postiz?.skool || {};
+      if (!sk.group || !sk.label) {
+        throw new Error('Skool: options.skool.group y options.skool.label son obligatorios');
+      }
+      return {
+        integration: { id: integrationId },
+        value: [
+          {
+            content: textBody,
+            image: [{ id: media.id, path: media.path }]
+          }
+        ],
+        settings: {
+          __type: 'skool',
+          group: sk.group,
+          label: sk.label,
+          title: (sk.title || title || 'Post').slice(0, 200)
+        }
+      };
+    }
+    default:
+      throw new Error(`Postiz: plataforma no soportada: ${platform}`);
+  }
+}
+
+async function streamDriveFileToTemp(drive, fileId, driveFileName) {
+  const streamRes = await drive.files.get(
+    { fileId, alt: 'media', supportsAllDrives: true },
+    { responseType: 'stream' }
+  );
+  const base =
+    (driveFileName || 'video').replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 80) || 'video';
+  const tmp = path.join(os.tmpdir(), `vp-${Date.now()}-${base}`);
+  const ws = fs.createWriteStream(tmp);
+  await new Promise((resolve, reject) => {
+    streamRes.data.pipe(ws);
+    streamRes.data.on('error', reject);
+    ws.on('finish', resolve);
+    ws.on('error', reject);
+  });
+  return tmp;
+}
+
+async function uploadMediaToPostiz(tmpPath, mimeType, filename) {
+  const apiKey = process.env.POSTIZ_API_KEY;
+  if (!apiKey) throw new Error('POSTIZ_API_KEY no configurada');
+  const form = new FormData();
+  form.append('file', fs.createReadStream(tmpPath), {
+    filename: filename || 'video.mp4',
+    contentType: mimeType || 'video/mp4'
+  });
+  const { data } = await axios.post(`${postizBaseUrl()}/upload`, form, {
+    headers: { ...form.getHeaders(), Authorization: apiKey },
+    maxContentLength: Infinity,
+    maxBodyLength: Infinity,
+    timeout: 0
+  });
+  if (!data?.path || !data?.id) throw new Error('Postiz upload: respuesta inválida');
+  return data;
+}
+
+async function postizCreatePost(body) {
+  const apiKey = process.env.POSTIZ_API_KEY;
+  if (!apiKey) throw new Error('POSTIZ_API_KEY no configurada');
+  const { data } = await axios.post(`${postizBaseUrl()}/posts`, body, {
+    headers: { Authorization: apiKey, 'Content-Type': 'application/json' },
+    timeout: 0
+  });
+  return data;
 }
 
 // Trust proxy (necesario en Vercel para que secure cookies y X-Forwarded-* funcionen)
@@ -350,14 +541,29 @@ app.get('/api/drive/files', async (req, res) => {
 app.post('/api/queue', async (req, res) => {
   await ensureServiceAccountCreds();
   const hasTokens = !!req.session?.tokens;
-  if (!hasTokens) {
-    return res.status(401).json({
-      error: USE_SA_DRIVE ? 'Conecta YouTube para continuar.' : 'Conecta Google Drive primero.'
-    });
-  }
   const { title, description, drive_file_id, drive_file_name, platforms, scheduled_at, options } = req.body;
   if (!title || !drive_file_id || !drive_file_name) {
     return res.status(400).json({ error: 'Faltan campos obligatorios: title, drive_file_id, drive_file_name' });
+  }
+  const platformArr = Array.isArray(platforms) ? platforms : platforms ? [platforms] : [];
+  const postizMapQ = parsePostizIntegrationMap();
+  const unresolvedQ = platformArr.filter((p) => !resolvePublishRoute(p, postizMapQ));
+  if (unresolvedQ.length) {
+    return res.status(400).json({
+      error:
+        'Plataforma no soportada o falta ID en POSTIZ_INTEGRATION_MAP: ' +
+        unresolvedQ.join(', ')
+    });
+  }
+  const needsYouTubeOAuth =
+    platformArr.includes('youtube') && !getPostizIntegrationId('youtube', postizMapQ);
+  if (!hasTokens) {
+    if (!USE_SA_DRIVE) {
+      return res.status(401).json({ error: 'Conecta Google Drive primero.' });
+    }
+    if (needsYouTubeOAuth) {
+      return res.status(401).json({ error: 'Conecta YouTube para continuar.' });
+    }
   }
   try {
     const { data, error } = await getSupabase()
@@ -406,88 +612,157 @@ async function getStoredOAuthClient() {
 
 // Endpoint que n8n llama para procesar cada fila pendiente de publish_queue
 app.post('/api/process_publish', async (req, res) => {
-  const { id, drive_file_id, drive_file_name, title, description, platforms } = req.body;
+  const {
+    id,
+    drive_file_id,
+    drive_file_name,
+    title,
+    description,
+    platforms,
+    scheduled_at,
+    options
+  } = req.body;
   if (!id || !drive_file_id) {
     return res.status(400).json({ success: false, error: 'Faltan id o drive_file_id' });
   }
-  const platformList = Array.isArray(platforms) ? platforms : (platforms ? [platforms] : []);
-  const publishYouTube = platformList.includes('youtube');
+  const rawList = Array.isArray(platforms) ? platforms : platforms ? [platforms] : [];
+  const platformList = [...new Set(rawList)];
+  if (!platformList.length) {
+    return res.status(400).json({ success: false, error: 'No hay plataformas en la petición' });
+  }
 
-  try {
-    if (!publishYouTube) {
-      return res.json({
-        success: false,
-        error: 'Solo YouTube está implementado. Plataformas solicitadas: ' + platformList.join(', ')
-      });
-    }
+  const postizMap = parsePostizIntegrationMap();
+  const unresolved = platformList.filter((p) => !resolvePublishRoute(p, postizMap));
+  if (unresolved.length) {
+    return res.json({
+      success: false,
+      error: 'Plataforma no soportada o falta ID en POSTIZ_INTEGRATION_MAP: ' + unresolved.join(', ')
+    });
+  }
 
-    const oauth2Client = await getStoredOAuthClient();
+  const postizPlatforms = platformList.filter((p) => getPostizIntegrationId(p, postizMap));
+  const needDirectYouTube =
+    platformList.includes('youtube') && !getPostizIntegrationId('youtube', postizMap);
+  const usePostiz = postizPlatforms.length > 0;
+  if (usePostiz && !process.env.POSTIZ_API_KEY) {
+    return res.json({
+      success: false,
+      error: 'Hay plataformas que usan Postiz pero falta POSTIZ_API_KEY'
+    });
+  }
+
+  const oauth2Client = await getStoredOAuthClient();
+  if (!USE_SA_DRIVE) {
     if (!oauth2Client) {
       return res.json({
         success: false,
-        error: USE_SA_DRIVE
-          ? 'No hay tokens de YouTube guardados. Conecta YouTube en la web y añade un vídeo a la cola de nuevo.'
-          : 'No hay tokens de Google guardados. Conecta Drive+YouTube en la web y añade un vídeo a la cola de nuevo.'
+        error: 'No hay tokens de Google guardados. Conecta Drive en la web.'
       });
     }
+  } else if (needDirectYouTube && !oauth2Client) {
+    return res.json({
+      success: false,
+      error:
+        'No hay tokens de YouTube guardados. Conecta YouTube en la web para publicación directa en YouTube.'
+    });
+  }
 
-    // Drive: SA (empresa) o OAuth; YouTube: siempre OAuth (canal personal)
-    await ensureServiceAccountCreds();
-    const driveAuth = USE_SA_DRIVE ? getDriveServiceAccountClient() : oauth2Client;
-    if (!driveAuth) {
-      return res.json({ success: false, error: 'Service Account no configurado para Drive.' });
-    }
-    const drive = google.drive({ version: 'v3', auth: driveAuth });
-    const youtube = google.youtube({ version: 'v3', auth: oauth2Client });
+  await ensureServiceAccountCreds();
+  const driveAuth = USE_SA_DRIVE ? getDriveServiceAccountClient() : oauth2Client;
+  if (!driveAuth) {
+    return res.json({ success: false, error: 'Service Account no configurado para Drive.' });
+  }
+  const drive = google.drive({ version: 'v3', auth: driveAuth });
 
-    // 1. Metadata del archivo en Drive
+  const published_urls = {};
+  let tempPath = null;
+
+  try {
     const { data: fileMeta } = await drive.files.get({
       fileId: drive_file_id,
       fields: 'size, mimeType',
       supportsAllDrives: true
     });
+    const mimeType = fileMeta.mimeType || 'video/mp4';
+    const sizeNum = fileMeta.size ? parseInt(fileMeta.size, 10) : undefined;
 
-    // 2. Descargar vídeo de Drive (stream)
-    const streamRes = await drive.files.get({
-      fileId: drive_file_id,
-      alt: 'media',
-      supportsAllDrives: true
-    }, { responseType: 'stream' });
-    const fileStream = streamRes.data;
+    const onlyDirectYt = needDirectYouTube && !usePostiz;
+    if (!onlyDirectYt) {
+      tempPath = await streamDriveFileToTemp(drive, drive_file_id, drive_file_name);
+    }
 
-    // 3. Subir a YouTube
-    const { data: youtubeVideo } = await youtube.videos.insert({
-      part: 'snippet,status',
-      requestBody: {
-        snippet: {
-          title: title || drive_file_name,
-          description: description || ''
+    if (usePostiz) {
+      const media = await uploadMediaToPostiz(tempPath, mimeType, drive_file_name || 'video.mp4');
+      const opts = typeof options === 'object' && options !== null ? options : {};
+      const posts = postizPlatforms.map((p) =>
+        buildPostizPostItem(
+          p,
+          getPostizIntegrationId(p, postizMap),
+          title || drive_file_name,
+          description || '',
+          media,
+          opts
+        )
+      );
+      const hasSchedule = scheduled_at && String(scheduled_at).trim();
+      const scheduleDate = hasSchedule
+        ? new Date(scheduled_at).toISOString()
+        : new Date().toISOString();
+      const postBody = {
+        type: hasSchedule ? 'schedule' : 'now',
+        date: scheduleDate,
+        shortLink: false,
+        tags: [],
+        posts
+      };
+      const postizResult = await postizCreatePost(postBody);
+      published_urls.postiz = postizResult;
+    }
+
+    if (needDirectYouTube) {
+      const youtube = google.youtube({ version: 'v3', auth: oauth2Client });
+      const fileStream = onlyDirectYt
+        ? (
+            await drive.files.get(
+              { fileId: drive_file_id, alt: 'media', supportsAllDrives: true },
+              { responseType: 'stream' }
+            )
+          ).data
+        : fs.createReadStream(tempPath);
+      const { data: youtubeVideo } = await youtube.videos.insert({
+        part: 'snippet,status',
+        requestBody: {
+          snippet: {
+            title: title || drive_file_name,
+            description: description || ''
+          },
+          status: {
+            privacyStatus: process.env.YOUTUBE_PRIVACY || 'private'
+          }
         },
-        status: {
-          privacyStatus: process.env.YOUTUBE_PRIVACY || 'private'
+        media: {
+          body: fileStream,
+          mimeType,
+          ...(sizeNum && { contentLength: sizeNum })
         }
-      },
-      media: {
-        body: fileStream,
-        mimeType: fileMeta.mimeType || 'video/mp4',
-        ...(fileMeta.size && { contentLength: parseInt(fileMeta.size, 10) })
-      }
-    });
+      });
+      published_urls.youtube = `https://www.youtube.com/watch?v=${youtubeVideo.id}`;
+    }
 
-    const videoId = youtubeVideo.id;
-    const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
-
-    res.json({
-      success: true,
-      published_urls: { youtube: youtubeUrl }
-    });
+    res.json({ success: true, published_urls });
   } catch (err) {
     console.error('Error en process_publish:', err);
+    const ax = err.response?.data;
     res.status(500).json({
       success: false,
       error: err.message || 'Error al publicar',
-      details: err.response?.data?.error?.message
+      details:
+        typeof ax === 'string'
+          ? ax
+          : ax?.message || ax?.error || err.response?.data?.error?.message
     });
+  } finally {
+    if (tempPath) await fsp.unlink(tempPath).catch(() => {});
   }
 });
 
