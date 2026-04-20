@@ -129,6 +129,76 @@
       border: 1px solid rgba(253, 185, 39, 0.28);
       box-shadow: 0 16px 28px rgba(0, 0, 0, 0.35);
     }
+    .notes-box {
+      margin-top: 14px;
+      border: 1px solid rgba(253, 185, 39, 0.2);
+      border-radius: 12px;
+      padding: 12px;
+      background: rgba(14, 10, 23, 0.72);
+    }
+    .notes-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .notes-title {
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--lakers-gold);
+      font-weight: 700;
+    }
+    .notes-meta {
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+    .notes-text {
+      white-space: pre-wrap;
+      color: var(--text-primary);
+      background: rgba(6, 4, 12, 0.45);
+      border-radius: 8px;
+      border: 1px solid rgba(253, 185, 39, 0.15);
+      min-height: 88px;
+      padding: 10px;
+      font-size: 14px;
+      line-height: 1.4;
+    }
+    .notes-editor {
+      display: none;
+      width: 100%;
+      min-height: 110px;
+      resize: vertical;
+      border-radius: 8px;
+      border: 1px solid rgba(253, 185, 39, 0.28);
+      background: rgba(6, 4, 12, 0.65);
+      color: var(--text-primary);
+      padding: 10px;
+      font-size: 14px;
+      line-height: 1.4;
+    }
+    .notes-editor:focus {
+      outline: none;
+      border-color: var(--lakers-gold);
+      box-shadow: 0 0 0 3px rgba(253, 185, 39, 0.15);
+    }
+    .notes-actions {
+      display: none;
+      justify-content: flex-end;
+      margin-top: 10px;
+    }
+    .btn-save {
+      border-color: rgba(253, 185, 39, 0.45);
+      background: linear-gradient(180deg, #f7bf3f, #fdb927);
+      color: #231038;
+      font-weight: 700;
+    }
+    .btn-save:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
+    }
     .empty { color: var(--text-secondary); padding: 18px; }
     @media (max-width: 980px) {
       .layout { grid-template-columns: 1fr; }
@@ -163,6 +233,17 @@
         <div class="player-wrap">
           <span class="status-pill">Analisis privado</span>
           <video id="player" controls playsinline></video>
+          <div class="notes-box">
+            <div class="notes-header">
+              <span class="notes-title">Analisis del video</span>
+              <span id="notes-meta" class="notes-meta"></span>
+            </div>
+            <div id="notes-text" class="notes-text">Selecciona un video para ver el analisis.</div>
+            <textarea id="notes-editor" class="notes-editor" maxlength="5000" placeholder="Escribe aqui el analisis del video..."></textarea>
+            <div id="notes-actions" class="notes-actions">
+              <button id="save-notes" class="btn btn-save" type="button">Guardar analisis</button>
+            </div>
+          </div>
         </div>
       </section>
     </div>
@@ -174,7 +255,14 @@
     const currentTitle = document.getElementById('current-title');
     const logoutBtn = document.getElementById('logout');
     const adminLink = document.getElementById('admin-link');
+    const notesText = document.getElementById('notes-text');
+    const notesEditor = document.getElementById('notes-editor');
+    const notesMeta = document.getElementById('notes-meta');
+    const notesActions = document.getElementById('notes-actions');
+    const saveNotesBtn = document.getElementById('save-notes');
     let videos = [];
+    let currentRole = null;
+    let currentVideoId = null;
 
     function formatDate(value) {
       if (!value) return '';
@@ -189,7 +277,12 @@
         location.replace('/login');
         return false;
       }
-      if (data.role === 'admin') adminLink.style.display = 'inline-block';
+      currentRole = data.role;
+      if (data.role === 'admin') {
+        adminLink.style.display = 'inline-block';
+        notesEditor.style.display = 'block';
+        notesActions.style.display = 'flex';
+      }
       return true;
     }
 
@@ -206,11 +299,31 @@
       `).join('');
     }
 
-    function playVideo(id, title) {
+    async function loadNotes(videoId) {
+      notesMeta.textContent = 'Cargando analisis...';
+      const resp = await fetch(`/api/private/videos/${encodeURIComponent(videoId)}/notes`);
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        notesMeta.textContent = '';
+        notesText.textContent = data.error || 'No se pudo cargar el analisis.';
+        notesEditor.value = '';
+        return;
+      }
+      const text = (data.text || '').trim();
+      notesText.textContent = text || 'No hay analisis para este video.';
+      notesEditor.value = data.text || '';
+      notesMeta.textContent = data.updatedAt
+        ? `Actualizado: ${new Date(data.updatedAt).toLocaleString('es-ES')}${data.updatedBy ? ` · ${data.updatedBy}` : ''}`
+        : '';
+    }
+
+    async function playVideo(id, title) {
+      currentVideoId = id;
       currentTitle.textContent = title || 'Reproduciendo';
       player.src = `/api/private/videos/${encodeURIComponent(id)}/stream`;
       player.play().catch(() => {});
       document.querySelectorAll('.item').forEach((btn) => btn.classList.toggle('active', btn.dataset.id === id));
+      await loadNotes(id);
     }
 
     async function loadVideos() {
@@ -222,13 +335,36 @@
       }
       videos = data.videos || [];
       renderList();
-      if (videos[0]) playVideo(videos[0].id, videos[0].title);
+      if (videos[0]) await playVideo(videos[0].id, videos[0].title);
     }
 
     listEl.addEventListener('click', (e) => {
       const btn = e.target.closest('.item');
       if (!btn) return;
       playVideo(btn.dataset.id, btn.dataset.title);
+    });
+
+    saveNotesBtn.addEventListener('click', async () => {
+      if (currentRole !== 'admin' || !currentVideoId) return;
+      const text = notesEditor.value.trim();
+      saveNotesBtn.disabled = true;
+      saveNotesBtn.textContent = 'Guardando...';
+      const resp = await fetch(`/api/private/videos/${encodeURIComponent(currentVideoId)}/notes`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text })
+      });
+      const data = await resp.json().catch(() => ({}));
+      saveNotesBtn.disabled = false;
+      saveNotesBtn.textContent = 'Guardar analisis';
+      if (!resp.ok) {
+        notesMeta.textContent = data.error || 'No se pudo guardar el analisis.';
+        return;
+      }
+      notesText.textContent = text || 'No hay analisis para este video.';
+      notesMeta.textContent = data.updatedAt
+        ? `Actualizado: ${new Date(data.updatedAt).toLocaleString('es-ES')}${data.updatedBy ? ` · ${data.updatedBy}` : ''}`
+        : '';
     });
 
     logoutBtn.addEventListener('click', async () => {

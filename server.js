@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const fsp = require('fs/promises');
 const os = require('os');
+const { Readable } = require('stream');
 const axios = require('axios');
 const FormData = require('form-data');
 const bodyParser = require('body-parser');
@@ -90,7 +91,7 @@ function getDriveServiceAccountClient() {
   try {
     return new google.auth.GoogleAuth({
       credentials: _saCreds,
-      scopes: ['https://www.googleapis.com/auth/drive.readonly']
+      scopes: ['https://www.googleapis.com/auth/drive']
     });
   } catch (e) {
     console.error('Error creando Service Account client:', e.message);
@@ -478,6 +479,82 @@ app.get('/auth/logout', requireAdmin, requirePublishEnabled, (req, res) => {
 // Config para el frontend (carpeta por defecto)
 const DEFAULT_FOLDER = process.env.DEFAULT_DRIVE_FOLDER_ID || '1y6rIQTNtqeRaq-z8Vw8kaWFvy_2moRtD';
 const PRIVATE_VIEWER_FOLDER = process.env.PRIVATE_VIEWER_DRIVE_FOLDER_ID || DEFAULT_FOLDER;
+const NOTES_FILE_NAME = process.env.VIDEO_NOTES_FILE_NAME || 'video_notes.json';
+let notesFileIdCache = process.env.VIDEO_NOTES_DRIVE_FILE_ID || null;
+
+async function streamToString(readable) {
+  const chunks = [];
+  await new Promise((resolve, reject) => {
+    readable.on('data', (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk))));
+    readable.on('end', resolve);
+    readable.on('error', reject);
+  });
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+async function getDriveNotesFileId(drive) {
+  if (notesFileIdCache) return notesFileIdCache;
+  const { data } = await drive.files.list({
+    q: `'${PRIVATE_VIEWER_FOLDER}' in parents and name = '${NOTES_FILE_NAME}' and trashed = false`,
+    fields: 'files(id,name,modifiedTime)',
+    orderBy: 'modifiedTime desc',
+    pageSize: 1,
+    supportsAllDrives: true,
+    includeItemsFromAllDrives: true
+  });
+  const found = data.files?.[0];
+  if (found?.id) {
+    notesFileIdCache = found.id;
+    return notesFileIdCache;
+  }
+
+  const created = await drive.files.create({
+    requestBody: {
+      name: NOTES_FILE_NAME,
+      parents: [PRIVATE_VIEWER_FOLDER],
+      mimeType: 'application/json'
+    },
+    media: {
+      mimeType: 'application/json',
+      body: Readable.from(['{}'])
+    },
+    fields: 'id',
+    supportsAllDrives: true
+  });
+  notesFileIdCache = created.data.id;
+  return notesFileIdCache;
+}
+
+async function loadVideoNotes(drive) {
+  const fileId = await getDriveNotesFileId(drive);
+  try {
+    const fileRes = await drive.files.get(
+      { fileId, alt: 'media', supportsAllDrives: true },
+      { responseType: 'stream' }
+    );
+    const raw = await streamToString(fileRes.data);
+    const parsed = JSON.parse(raw || '{}');
+    if (parsed && typeof parsed === 'object') return parsed;
+    return {};
+  } catch (err) {
+    console.error('Error leyendo notas de video:', err.message);
+    return {};
+  }
+}
+
+async function saveVideoNotes(drive, notesMap) {
+  const fileId = await getDriveNotesFileId(drive);
+  const payload = JSON.stringify(notesMap, null, 2);
+  await drive.files.update({
+    fileId,
+    media: {
+      mimeType: 'application/json',
+      body: Readable.from([payload])
+    },
+    supportsAllDrives: true
+  });
+}
+
 app.get('/api/config', requireAdmin, requirePublishEnabled, async (req, res) => {
   await ensureServiceAccountCreds();
   res.json({
@@ -653,6 +730,50 @@ app.get('/api/private/videos/:id/stream', requireAuth, async (req, res) => {
   } catch (err) {
     console.error('Error streaming video privado:', err);
     res.status(500).json({ error: 'No se pudo reproducir el video' });
+  }
+});
+
+// Sala privada: descripción de análisis por video (admin escribe, viewer lee)
+app.get('/api/private/videos/:id/notes', requireAuth, async (req, res) => {
+  await ensureServiceAccountCreds();
+  const auth = getDriveServiceAccountClient();
+  if (!auth) return res.status(503).json({ error: 'Service Account no configurado para notas' });
+  try {
+    const drive = google.drive({ version: 'v3', auth });
+    const notes = await loadVideoNotes(drive);
+    const note = notes[req.params.id] || {};
+    res.json({
+      text: typeof note.text === 'string' ? note.text : '',
+      updatedAt: note.updatedAt || null,
+      updatedBy: note.updatedBy || null
+    });
+  } catch (err) {
+    console.error('Error leyendo notas del video:', err);
+    res.status(500).json({ error: 'No se pudo cargar el análisis del video' });
+  }
+});
+
+app.put('/api/private/videos/:id/notes', requireAdmin, async (req, res) => {
+  await ensureServiceAccountCreds();
+  const auth = getDriveServiceAccountClient();
+  if (!auth) return res.status(503).json({ error: 'Service Account no configurado para notas' });
+  const text = typeof req.body?.text === 'string' ? req.body.text.trim() : '';
+  if (text.length > 5000) {
+    return res.status(400).json({ error: 'El análisis no puede superar 5000 caracteres' });
+  }
+  try {
+    const drive = google.drive({ version: 'v3', auth });
+    const notes = await loadVideoNotes(drive);
+    notes[req.params.id] = {
+      text,
+      updatedAt: new Date().toISOString(),
+      updatedBy: req.session?.userEmail || 'admin'
+    };
+    await saveVideoNotes(drive, notes);
+    res.json(notes[req.params.id]);
+  } catch (err) {
+    console.error('Error guardando notas del video:', err);
+    res.status(500).json({ error: 'No se pudo guardar el análisis del video' });
   }
 });
 
