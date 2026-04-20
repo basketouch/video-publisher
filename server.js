@@ -492,7 +492,8 @@ async function streamToString(readable) {
   return Buffer.concat(chunks).toString('utf8');
 }
 
-async function getDriveNotesFileId(drive) {
+async function getDriveNotesFileId(drive, options = {}) {
+  const { createIfMissing = false } = options;
   if (notesFileIdCache) return notesFileIdCache;
   const { data } = await drive.files.list({
     q: `'${PRIVATE_VIEWER_FOLDER}' in parents and name = '${NOTES_FILE_NAME}' and trashed = false`,
@@ -507,6 +508,8 @@ async function getDriveNotesFileId(drive) {
     notesFileIdCache = found.id;
     return notesFileIdCache;
   }
+
+  if (!createIfMissing) return null;
 
   const created = await drive.files.create({
     requestBody: {
@@ -526,7 +529,8 @@ async function getDriveNotesFileId(drive) {
 }
 
 async function loadVideoNotes(drive) {
-  const fileId = await getDriveNotesFileId(drive);
+  const fileId = await getDriveNotesFileId(drive, { createIfMissing: false });
+  if (!fileId) return {};
   try {
     const fileRes = await drive.files.get(
       { fileId, alt: 'media', supportsAllDrives: true },
@@ -543,7 +547,7 @@ async function loadVideoNotes(drive) {
 }
 
 async function saveVideoNotes(drive, notesMap) {
-  const fileId = await getDriveNotesFileId(drive);
+  const fileId = await getDriveNotesFileId(drive, { createIfMissing: true });
   const payload = JSON.stringify(notesMap, null, 2);
   await drive.files.update({
     fileId,
@@ -749,6 +753,9 @@ app.get('/api/private/videos/:id/notes', requireAuth, async (req, res) => {
     });
   } catch (err) {
     console.error('Error leyendo notas del video:', err);
+    if (err?.code === 403) {
+      return res.status(403).json({ error: 'La cuenta de servicio no tiene permisos sobre el archivo de notas' });
+    }
     res.status(500).json({ error: 'No se pudo cargar el análisis del video' });
   }
 });
@@ -773,6 +780,9 @@ app.put('/api/private/videos/:id/notes', requireAdmin, async (req, res) => {
     res.json(notes[req.params.id]);
   } catch (err) {
     console.error('Error guardando notas del video:', err);
+    if (err?.code === 403) {
+      return res.status(403).json({ error: 'La cuenta de servicio no tiene permisos de edición en la carpeta para guardar análisis' });
+    }
     res.status(500).json({ error: 'No se pudo guardar el análisis del video' });
   }
 });
