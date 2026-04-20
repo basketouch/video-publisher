@@ -5,24 +5,93 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Acceso | Video Publisher</title>
   <style>
+    :root {
+      --lakers-purple: #552583;
+      --lakers-purple-dark: #1b1230;
+      --lakers-black: #0b0b12;
+      --lakers-gold: #fdb927;
+      --text-primary: #f5f2ff;
+      --text-secondary: #cfc7e8;
+      --border-soft: rgba(253, 185, 39, 0.2);
+    }
     * { box-sizing: border-box; }
-    body { font-family: system-ui, -apple-system, sans-serif; margin: 0; min-height: 100vh; display: grid; place-items: center; background: #f5f7fb; padding: 24px; }
-    .card { width: 100%; max-width: 420px; background: white; border-radius: 14px; padding: 28px; box-shadow: 0 10px 24px rgba(0,0,0,0.08); }
-    h1 { margin: 0 0 10px; font-size: 24px; }
-    p { margin: 0 0 20px; color: #5f6368; font-size: 14px; }
-    label { display: block; font-weight: 600; margin-bottom: 6px; font-size: 14px; }
-    input { width: 100%; border: 1px solid #d0d7de; border-radius: 10px; padding: 10px 12px; margin-bottom: 14px; font-size: 14px; }
-    input:focus { outline: none; border-color: #1a73e8; }
-    button { width: 100%; border: none; border-radius: 10px; background: #1a73e8; color: white; padding: 11px 14px; font-size: 14px; cursor: pointer; }
-    button:hover { background: #1557b0; }
+    body {
+      font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      color: var(--text-primary);
+      background:
+        radial-gradient(circle at 12% 10%, rgba(253, 185, 39, 0.14), transparent 32%),
+        radial-gradient(circle at 88% 14%, rgba(85, 37, 131, 0.26), transparent 34%),
+        linear-gradient(145deg, #100a1e 0%, #0b0b12 60%, #08080d 100%);
+    }
+    .card {
+      width: 100%;
+      max-width: 460px;
+      background: linear-gradient(180deg, rgba(28, 16, 48, 0.92), rgba(13, 10, 22, 0.96));
+      border-radius: 16px;
+      padding: 30px;
+      border: 1px solid var(--border-soft);
+      box-shadow: 0 18px 34px rgba(0, 0, 0, 0.34);
+    }
+    .brand-kicker {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.6px;
+      text-transform: uppercase;
+      color: #221534;
+      background: var(--lakers-gold);
+      border-radius: 999px;
+      padding: 5px 10px;
+      margin-bottom: 10px;
+    }
+    h1 { margin: 0 0 8px; font-size: 28px; letter-spacing: 0.2px; }
+    h1 .gold { color: var(--lakers-gold); }
+    p { margin: 0 0 20px; color: var(--text-secondary); font-size: 14px; }
+    label { display: block; font-weight: 600; margin-bottom: 6px; font-size: 14px; color: var(--text-primary); }
+    input {
+      width: 100%;
+      border: 1px solid rgba(253, 185, 39, 0.22);
+      border-radius: 10px;
+      padding: 10px 12px;
+      margin-bottom: 14px;
+      font-size: 14px;
+      background: rgba(16, 11, 26, 0.76);
+      color: var(--text-primary);
+    }
+    input:focus {
+      outline: none;
+      border-color: var(--lakers-gold);
+      box-shadow: 0 0 0 3px rgba(253, 185, 39, 0.15);
+    }
+    button {
+      width: 100%;
+      border: none;
+      border-radius: 10px;
+      background: linear-gradient(180deg, #f7bf3f, #fdb927);
+      color: #231038;
+      padding: 11px 14px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.18s ease;
+    }
+    button:hover { filter: brightness(1.03); transform: translateY(-1px); }
     .msg { margin-top: 12px; min-height: 18px; font-size: 13px; }
-    .err { color: #c5221f; }
-    .ok { color: #137333; }
+    .err { color: #ff8e8e; }
+    .ok { color: #8cffc2; }
   </style>
 </head>
 <body>
   <main class="card">
-    <h1>Video Publisher</h1>
+    <span class="brand-kicker">Lakers talk room</span>
+    <h1><span class="gold">Video</span> Publisher</h1>
     <p>Accede con tus credenciales para entrar en Admin o Sala privada.</p>
 
     <form id="login-form">
