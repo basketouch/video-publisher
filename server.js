@@ -697,7 +697,16 @@ app.get('/api/private/videos', requireAuth, async (req, res) => {
   }
 });
 
-// Sala privada: streaming sin exponer enlaces de Drive
+function pickHeader(headers, name) {
+  if (!headers || typeof headers !== 'object') return undefined;
+  const lower = name.toLowerCase();
+  for (const k of Object.keys(headers)) {
+    if (k.toLowerCase() === lower) return headers[k];
+  }
+  return undefined;
+}
+
+// Sala privada: streaming sin exponer enlaces de Drive (un solo round-trip a Google cuando hay Range)
 app.get('/api/private/videos/:id/stream', requireAuth, async (req, res) => {
   await ensureServiceAccountCreds();
   const auth = getDriveServiceAccountClient();
@@ -707,50 +716,48 @@ app.get('/api/private/videos/:id/stream', requireAuth, async (req, res) => {
   try {
     const drive = google.drive({ version: 'v3', auth });
     const fileId = req.params.id;
-    const meta = await drive.files.get({
-      fileId,
-      fields: 'id,name,mimeType,size',
-      supportsAllDrives: true
-    });
-    const mimeType = meta.data.mimeType || 'video/mp4';
-    const totalSize = Number(meta.data.size || 0);
     const range = req.headers.range;
+    const requestConfig = {
+      responseType: 'stream',
+      validateStatus: () => true
+    };
+    if (range) {
+      requestConfig.headers = { Range: range };
+    }
+    const upstream = await drive.files.get(
+      { fileId, alt: 'media', supportsAllDrives: true },
+      requestConfig
+    );
+    const status = upstream.status;
+    const rh = upstream.headers || {};
 
-    if (range && totalSize > 0) {
-      const [startPart, endPart] = range.replace(/bytes=/, '').split('-');
-      const start = Number(startPart || 0);
-      const end = endPart ? Number(endPart) : Math.min(start + 1024 * 1024 - 1, totalSize - 1);
-      if (Number.isNaN(start) || Number.isNaN(end) || start > end || end >= totalSize) {
-        return res.status(416).send('Range no válido');
+    if (status === 416) {
+      return res.status(416).send('Range no válido');
+    }
+    if (status < 200 || status >= 300) {
+      let detail = '';
+      try {
+        detail = await streamToString(upstream.data);
+      } catch {
+        detail = '';
       }
-      const chunkSize = end - start + 1;
-      const streamResp = await drive.files.get(
-        { fileId, alt: 'media', supportsAllDrives: true },
-        {
-          responseType: 'stream',
-          headers: { Range: `bytes=${start}-${end}` }
-        }
-      );
-      res.writeHead(206, {
-        'Content-Range': `bytes ${start}-${end}/${totalSize}`,
-        'Accept-Ranges': 'bytes',
-        'Content-Length': chunkSize,
-        'Content-Type': mimeType,
-        'Cache-Control': 'private, max-age=60'
-      });
-      streamResp.data.pipe(res);
-      return;
+      console.error('Drive stream error', status, detail?.slice(0, 200));
+      return res.status(status >= 400 ? status : 502).json({ error: 'No se pudo reproducir el video' });
     }
 
-    const fullResp = await drive.files.get(
-      { fileId, alt: 'media', supportsAllDrives: true },
-      { responseType: 'stream' }
-    );
-    res.setHeader('Content-Type', mimeType);
-    if (totalSize > 0) res.setHeader('Content-Length', String(totalSize));
-    res.setHeader('Accept-Ranges', 'bytes');
-    res.setHeader('Cache-Control', 'private, max-age=60');
-    fullResp.data.pipe(res);
+    res.status(status);
+    const forwardNames = ['content-type', 'content-length', 'content-range', 'accept-ranges', 'etag'];
+    for (const n of forwardNames) {
+      const v = pickHeader(rh, n);
+      if (v) res.setHeader(n, v);
+    }
+    res.setHeader('Cache-Control', 'private, max-age=120');
+
+    upstream.data.on('error', (e) => {
+      console.error('Error en stream upstream:', e.message);
+      if (!res.writableEnded) res.destroy(e);
+    });
+    upstream.data.pipe(res);
   } catch (err) {
     console.error('Error streaming video privado:', err);
     res.status(500).json({ error: 'No se pudo reproducir el video' });
