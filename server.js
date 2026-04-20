@@ -13,6 +13,8 @@ const { google } = require('googleapis');
 const { createClient } = require('@supabase/supabase-js');
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'info@basketouch.com';
+const VIEWER_USERNAME = (process.env.VIEWER_USERNAME || '').trim().toLowerCase();
+const VIEWER_PASSWORD = process.env.VIEWER_PASSWORD || '';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -317,18 +319,46 @@ app.use(cookieSession({
   sameSite: 'lax' // Necesario para OAuth redirect desde Google
 }));
 
+function getSessionRole(req) {
+  if (req.session?.userRole) return req.session.userRole;
+  if (req.session?.adminLoggedIn) return 'admin';
+  return null;
+}
+
+function isAuthenticated(req) {
+  return !!getSessionRole(req);
+}
+
+function requireAuth(req, res, next) {
+  if (isAuthenticated(req)) return next();
+  if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'Inicia sesión' });
+  return res.redirect('/login');
+}
+
+function requireAdmin(req, res, next) {
+  const role = getSessionRole(req);
+  if (role === 'admin') return next();
+  if (req.path.startsWith('/api/')) return res.status(403).json({ error: 'Acceso restringido a administradores' });
+  return res.redirect('/login');
+}
+
 // --- Rutas públicas (no requieren login admin) ---
 
-// Estado del admin: ¿necesita setup? ¿está logueado?
-app.get('/api/admin/status', async (req, res) => {
+// Estado de acceso para login y redirección
+app.get('/api/auth/status', async (req, res) => {
   try {
     const { data } = await getSupabase().from('app_admin').select('id').eq('email', ADMIN_EMAIL.trim().toLowerCase()).maybeSingle();
     const needsSetup = !data;
-    const loggedIn = !!req.session?.adminLoggedIn;
-    res.json({ needsSetup, loggedIn });
+    const role = getSessionRole(req);
+    res.json({
+      authenticated: !!role,
+      role,
+      needsSetup,
+      viewerEnabled: !!(VIEWER_USERNAME && VIEWER_PASSWORD)
+    });
   } catch (err) {
-    console.error('Error api/admin/status:', err);
-    res.status(500).json({ needsSetup: true, loggedIn: false });
+    console.error('Error api/auth/status:', err);
+    res.status(500).json({ authenticated: false, role: null, needsSetup: true, viewerEnabled: false });
   }
 });
 
@@ -345,49 +375,89 @@ app.post('/api/admin/setup', async (req, res) => {
     }
     const passwordHash = bcrypt.hashSync(password, 10);
     await getSupabase().from('app_admin').insert({ email: ADMIN_EMAIL.trim().toLowerCase(), password_hash: passwordHash });
+    req.session.userRole = 'admin';
+    req.session.userEmail = ADMIN_EMAIL.trim().toLowerCase();
     req.session.adminLoggedIn = true;
-    res.json({ success: true });
+    res.json({ success: true, role: 'admin' });
   } catch (err) {
     console.error('Error api/admin/setup:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// Iniciar sesión (valida contra cualquier usuario en app_admin)
+// Login único para admin/viewer
+app.post('/api/auth/login', async (req, res) => {
+  const { username, password } = req.body;
+  if (!username || !password) {
+    return res.status(400).json({ error: 'Credenciales incorrectas' });
+  }
+  const normalizedUsername = username.trim().toLowerCase();
+
+  if (VIEWER_USERNAME && VIEWER_PASSWORD && normalizedUsername === VIEWER_USERNAME) {
+    if (password !== VIEWER_PASSWORD) {
+      return res.status(401).json({ error: 'Credenciales incorrectas' });
+    }
+    req.session.userRole = 'viewer';
+    req.session.userEmail = VIEWER_USERNAME;
+    req.session.adminLoggedIn = false;
+    req.session.tokens = null;
+    return res.json({ success: true, role: 'viewer' });
+  }
+
+  try {
+    const { data } = await getSupabase().from('app_admin').select('password_hash').eq('email', normalizedUsername).maybeSingle();
+    if (!data || !bcrypt.compareSync(password, data.password_hash)) {
+      return res.status(401).json({ error: 'Credenciales incorrectas' });
+    }
+    req.session.userRole = 'admin';
+    req.session.userEmail = normalizedUsername;
+    req.session.adminLoggedIn = true;
+    res.json({ success: true, role: 'admin' });
+  } catch (err) {
+    console.error('Error api/auth/login:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/auth/logout', (req, res) => {
+  req.session = null;
+  res.json({ success: true });
+});
+
+// Compatibilidad temporal con llamadas antiguas
+app.get('/api/admin/status', async (req, res) => {
+  try {
+    const { data } = await getSupabase().from('app_admin').select('id').eq('email', ADMIN_EMAIL.trim().toLowerCase()).maybeSingle();
+    res.json({ needsSetup: !data, loggedIn: getSessionRole(req) === 'admin' });
+  } catch (err) {
+    console.error('Error api/admin/status:', err);
+    res.status(500).json({ needsSetup: true, loggedIn: false });
+  }
+});
 app.post('/api/admin/login', async (req, res) => {
-  const { email, password } = req.body;
+  const email = (req.body?.email || '').trim().toLowerCase();
+  const password = req.body?.password || '';
   if (!email || !password) {
     return res.status(400).json({ error: 'Credenciales incorrectas' });
   }
   try {
-    const { data } = await getSupabase().from('app_admin').select('password_hash').eq('email', email.trim().toLowerCase()).maybeSingle();
+    const { data } = await getSupabase().from('app_admin').select('password_hash').eq('email', email).maybeSingle();
     if (!data || !bcrypt.compareSync(password, data.password_hash)) {
       return res.status(401).json({ error: 'Credenciales incorrectas' });
     }
+    req.session.userRole = 'admin';
+    req.session.userEmail = email;
     req.session.adminLoggedIn = true;
-    res.json({ success: true });
+    res.json({ success: true, role: 'admin' });
   } catch (err) {
     console.error('Error api/admin/login:', err);
     res.status(500).json({ error: err.message });
   }
 });
-
-// Cerrar sesión admin
 app.post('/api/admin/logout', (req, res) => {
-  req.session.adminLoggedIn = false;
+  req.session = null;
   res.json({ success: true });
 });
-
-// Middleware: requiere login admin para /auth y APIs de Drive
-const publicPaths = ['/api/admin/status', '/api/admin/setup', '/api/admin/login', '/api/admin/logout', '/api/process_publish'];
-function requireAdmin(req, res, next) {
-  if (req.path === '/' || req.path === '' || publicPaths.some(p => req.path === p)) return next();
-  if (req.session?.adminLoggedIn) return next();
-  if (req.path === '/auth' || req.path === '/auth/logout') return res.redirect('/');
-  if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'Inicia sesión' });
-  next();
-}
-app.use(requireAdmin);
 
 // --- Rutas protegidas ---
 
@@ -403,7 +473,7 @@ const OAUTH_SCOPES_YOUTUBE_ONLY = [
 ];
 
 // Redirige a Google: solo YouTube si usamos SA para Drive; Drive+YouTube si no
-app.get('/auth', async (req, res) => {
+app.get('/auth', requireAdmin, async (req, res) => {
   await ensureServiceAccountCreds();
   const redirectUri = getRedirectUri(req);
   const oauth2Client = getOAuth2Client(redirectUri);
@@ -417,7 +487,7 @@ app.get('/auth', async (req, res) => {
 });
 
 // Recibe el code de Google, guarda tokens en sesión y en Supabase (para process_publish)
-app.get('/api/auth/callback', async (req, res) => {
+app.get('/api/auth/callback', requireAdmin, async (req, res) => {
   const { code } = req.query;
   if (!code) {
     return res.redirect('/?error=no_code');
@@ -442,14 +512,15 @@ app.get('/api/auth/callback', async (req, res) => {
 });
 
 // Cerrar sesión
-app.get('/auth/logout', (req, res) => {
+app.get('/auth/logout', requireAdmin, (req, res) => {
   req.session = null;
   res.redirect('/');
 });
 
 // Config para el frontend (carpeta por defecto)
 const DEFAULT_FOLDER = process.env.DEFAULT_DRIVE_FOLDER_ID || '1y6rIQTNtqeRaq-z8Vw8kaWFvy_2moRtD';
-app.get('/api/config', async (req, res) => {
+const PRIVATE_VIEWER_FOLDER = process.env.PRIVATE_VIEWER_DRIVE_FOLDER_ID || DEFAULT_FOLDER;
+app.get('/api/config', requireAdmin, async (req, res) => {
   await ensureServiceAccountCreds();
   res.json({
     defaultFolderId: DEFAULT_FOLDER,
@@ -457,8 +528,8 @@ app.get('/api/config', async (req, res) => {
   });
 });
 
-// Estado de conexión OAuth (para YouTube cuando USE_SA_DRIVE, o Drive+YouTube si no)
-app.get('/api/auth/status', (req, res) => {
+// Estado de conexión OAuth de Google (solo admin)
+app.get('/api/google/status', requireAdmin, (req, res) => {
   res.json({ connected: !!req.session?.tokens });
 });
 
@@ -476,7 +547,7 @@ async function getDriveClient(req) {
 // Lista carpetas y vídeos de Drive (con navegación por carpeta)
 // Con USE_SA_DRIVE: usa Service Account (no requiere sesión OAuth)
 // Sin USE_SA_DRIVE: usa OAuth del usuario
-app.get('/api/drive/files', async (req, res) => {
+app.get('/api/drive/files', requireAdmin, async (req, res) => {
   await ensureServiceAccountCreds();
   let auth = null;
   if (USE_SA_DRIVE) {
@@ -536,9 +607,100 @@ app.get('/api/drive/files', async (req, res) => {
   }
 });
 
+// Sala privada: listado de videos en carpeta fija (solo lectura)
+app.get('/api/private/videos', requireAuth, async (req, res) => {
+  await ensureServiceAccountCreds();
+  const auth = getDriveServiceAccountClient();
+  if (!auth) {
+    return res.status(503).json({ error: 'Service Account no configurado para sala privada' });
+  }
+  try {
+    const drive = google.drive({ version: 'v3', auth });
+    const { data } = await drive.files.list({
+      q: `'${PRIVATE_VIEWER_FOLDER}' in parents and mimeType contains 'video/' and trashed = false`,
+      fields: 'files(id, name, mimeType, size, modifiedTime)',
+      orderBy: 'modifiedTime desc',
+      pageSize: 100,
+      supportsAllDrives: true,
+      includeItemsFromAllDrives: true
+    });
+    const videos = (data.files || []).map((f) => ({
+      id: f.id,
+      title: f.name,
+      mimeType: f.mimeType,
+      size: f.size,
+      modifiedTime: f.modifiedTime
+    }));
+    res.json({ videos });
+  } catch (err) {
+    console.error('Error listando videos privados:', err);
+    res.status(500).json({ error: 'No se pudieron cargar los videos privados' });
+  }
+});
+
+// Sala privada: streaming sin exponer enlaces de Drive
+app.get('/api/private/videos/:id/stream', requireAuth, async (req, res) => {
+  await ensureServiceAccountCreds();
+  const auth = getDriveServiceAccountClient();
+  if (!auth) {
+    return res.status(503).json({ error: 'Service Account no configurado para sala privada' });
+  }
+  try {
+    const drive = google.drive({ version: 'v3', auth });
+    const fileId = req.params.id;
+    const meta = await drive.files.get({
+      fileId,
+      fields: 'id,name,mimeType,size',
+      supportsAllDrives: true
+    });
+    const mimeType = meta.data.mimeType || 'video/mp4';
+    const totalSize = Number(meta.data.size || 0);
+    const range = req.headers.range;
+
+    if (range && totalSize > 0) {
+      const [startPart, endPart] = range.replace(/bytes=/, '').split('-');
+      const start = Number(startPart || 0);
+      const end = endPart ? Number(endPart) : Math.min(start + 1024 * 1024 - 1, totalSize - 1);
+      if (Number.isNaN(start) || Number.isNaN(end) || start > end || end >= totalSize) {
+        return res.status(416).send('Range no válido');
+      }
+      const chunkSize = end - start + 1;
+      const streamResp = await drive.files.get(
+        { fileId, alt: 'media', supportsAllDrives: true },
+        {
+          responseType: 'stream',
+          headers: { Range: `bytes=${start}-${end}` }
+        }
+      );
+      res.writeHead(206, {
+        'Content-Range': `bytes ${start}-${end}/${totalSize}`,
+        'Accept-Ranges': 'bytes',
+        'Content-Length': chunkSize,
+        'Content-Type': mimeType,
+        'Cache-Control': 'private, max-age=60'
+      });
+      streamResp.data.pipe(res);
+      return;
+    }
+
+    const fullResp = await drive.files.get(
+      { fileId, alt: 'media', supportsAllDrives: true },
+      { responseType: 'stream' }
+    );
+    res.setHeader('Content-Type', mimeType);
+    if (totalSize > 0) res.setHeader('Content-Length', String(totalSize));
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('Cache-Control', 'private, max-age=60');
+    fullResp.data.pipe(res);
+  } catch (err) {
+    console.error('Error streaming video privado:', err);
+    res.status(500).json({ error: 'No se pudo reproducir el video' });
+  }
+});
+
 // Inserta fila en publish_queue de Supabase
 // Con USE_SA_DRIVE: solo se necesita YouTube (tokens); sin SA: Drive+YouTube
-app.post('/api/queue', async (req, res) => {
+app.post('/api/queue', requireAdmin, async (req, res) => {
   await ensureServiceAccountCreds();
   const hasTokens = !!req.session?.tokens;
   const { title, description, drive_file_id, drive_file_name, platforms, scheduled_at, options } = req.body;
@@ -766,9 +928,23 @@ app.post('/api/process_publish', async (req, res) => {
   }
 });
 
-// Servir index para SPA
-app.get('/', (req, res) => {
+app.get('/login', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'login.html'));
+});
+
+app.get('/admin', requireAdmin, (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+app.get('/sala', requireAuth, (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'sala.html'));
+});
+
+app.get('/', (req, res) => {
+  const role = getSessionRole(req);
+  if (role === 'admin') return res.redirect('/admin');
+  if (role === 'viewer') return res.redirect('/sala');
+  return res.redirect('/login');
 });
 
 // Archivos estáticos (después de las rutas API)

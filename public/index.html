@@ -76,6 +76,7 @@
     <a id="auth-link" href="/auth" class="btn btn-primary">Conectar Google Drive</a>
     <a id="logout-link" href="/auth/logout" class="btn" style="display:none;">Desconectar Drive</a>
     <span id="auth-status" class="connected" style="display:none;"></span>
+    <a href="/sala" class="btn">Ir a sala privada</a>
     <a href="#" id="admin-logout" class="btn" style="display:none; margin-left:auto;">Cerrar sesión</a>
   </div>
 
@@ -215,7 +216,7 @@
 
       // Con USE_SA_DRIVE, Drive funciona sin OAuth; la conexión es solo para YouTube
       if (useServiceAccountDrive) {
-        const statusResp = await fetch('/api/auth/status');
+        const statusResp = await fetch('/api/google/status');
         const status = await safeJson(statusResp);
         const connected = !!status.connected;
         authLink.textContent = connected ? 'Cambiar cuenta YouTube' : 'Conectar YouTube';
