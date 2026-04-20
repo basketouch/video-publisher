@@ -18,24 +18,57 @@
     body {
       font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
       margin: 0;
-      min-height: 100vh;
-      display: grid;
-      place-items: center;
-      padding: 24px;
+      min-height: 100dvh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 18px;
       color: var(--text-primary);
       background:
         radial-gradient(circle at 12% 10%, rgba(253, 185, 39, 0.14), transparent 32%),
         radial-gradient(circle at 88% 14%, rgba(85, 37, 131, 0.26), transparent 34%),
         linear-gradient(145deg, #100a1e 0%, #0b0b12 60%, #08080d 100%);
+      overflow: hidden;
+    }
+    .page {
+      width: min(1180px, 100%);
+      height: min(700px, calc(100dvh - 36px));
+      display: grid;
+      grid-template-rows: 1fr auto;
+      gap: 10px;
+    }
+    .hero-layout {
+      display: grid;
+      grid-template-columns: 1.2fr 0.8fr;
+      gap: 16px;
+      min-height: 0;
+    }
+    .hero-image {
+      border-radius: 16px;
+      border: 1px solid var(--border-soft);
+      overflow: hidden;
+      box-shadow: 0 18px 34px rgba(0, 0, 0, 0.34);
+      min-height: 0;
+      background: rgba(10, 8, 20, 0.7);
+    }
+    .hero-image img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: center;
+      display: block;
     }
     .card {
       width: 100%;
-      max-width: 460px;
       background: linear-gradient(180deg, rgba(28, 16, 48, 0.92), rgba(13, 10, 22, 0.96));
       border-radius: 16px;
       padding: 30px;
       border: 1px solid var(--border-soft);
       box-shadow: 0 18px 34px rgba(0, 0, 0, 0.34);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      min-height: 0;
     }
     .brand-kicker {
       display: inline-flex;
@@ -86,25 +119,50 @@
     .msg { margin-top: 12px; min-height: 18px; font-size: 13px; }
     .err { color: #ff8e8e; }
     .ok { color: #8cffc2; }
+    .site-footer {
+      text-align: center;
+      color: var(--lakers-gold);
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 0.2px;
+      padding: 6px 0 0;
+    }
+    @media (max-width: 980px) {
+      body { overflow: auto; padding: 14px; }
+      .page { height: auto; }
+      .hero-layout { grid-template-columns: 1fr; }
+      .hero-image { max-height: 260px; }
+      .card { padding: 24px; }
+    }
   </style>
 </head>
 <body>
-  <main class="card">
-    <span class="brand-kicker">El Laboratorio de Jorge Lorenzo by Pinto Lakers</span>
-    <h1><span class="gold">Video</span> Publisher</h1>
-    <p>Accede con tus credenciales para entrar en Admin o Sala privada.</p>
+  <div class="page">
+    <div class="hero-layout">
+      <section class="hero-image">
+        <img src="/portada-laboratorio.png" alt="Portada de El Laboratorio de Jorge Lorenzo">
+      </section>
 
-    <form id="login-form">
-      <label for="username">Usuario</label>
-      <input id="username" type="text" autocomplete="username" required>
+      <main class="card">
+        <span class="brand-kicker">El Laboratorio de Jorge Lorenzo by Pinto Lakers</span>
+        <h1><span class="gold">Video</span> Publisher</h1>
+        <p>Accede con tus credenciales para entrar en Admin o Sala privada.</p>
 
-      <label for="password">Contraseña</label>
-      <input id="password" type="password" autocomplete="current-password" required>
+        <form id="login-form">
+          <label for="username">Usuario</label>
+          <input id="username" type="text" autocomplete="username" required>
 
-      <button type="submit">Entrar</button>
-      <div id="msg" class="msg"></div>
-    </form>
-  </main>
+          <label for="password">Contraseña</label>
+          <input id="password" type="password" autocomplete="current-password" required>
+
+          <button type="submit">Entrar</button>
+          <div id="msg" class="msg"></div>
+        </form>
+      </main>
+    </div>
+
+    <footer class="site-footer">Created by Basketouch Solucions Spain</footer>
+  </div>
 
   <script>
     const form = document.getElementById('login-form');
