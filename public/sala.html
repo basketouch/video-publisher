@@ -358,7 +358,8 @@
       saveNotesBtn.disabled = false;
       saveNotesBtn.textContent = 'Guardar analisis';
       if (!resp.ok) {
-        notesMeta.textContent = data.error || 'No se pudo guardar el analisis.';
+        const extra = data.detail ? ` (${data.detail})` : '';
+        notesMeta.textContent = (data.error || 'No se pudo guardar el analisis.') + extra;
         return;
       }
       notesText.textContent = text || 'No hay analisis para este video.';

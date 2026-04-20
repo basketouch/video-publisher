@@ -479,8 +479,28 @@ app.get('/auth/logout', requireAdmin, requirePublishEnabled, (req, res) => {
 // Config para el frontend (carpeta por defecto)
 const DEFAULT_FOLDER = process.env.DEFAULT_DRIVE_FOLDER_ID || '1y6rIQTNtqeRaq-z8Vw8kaWFvy_2moRtD';
 const PRIVATE_VIEWER_FOLDER = process.env.PRIVATE_VIEWER_DRIVE_FOLDER_ID || DEFAULT_FOLDER;
+/** Carpeta donde vive video_notes.json (si no se define, usa la misma que los vídeos). Útil si los vídeos solo pueden ser “lector” pero quieres otra carpeta con permiso de editor para la SA. */
+const PRIVATE_NOTES_FOLDER = process.env.VIDEO_NOTES_DRIVE_FOLDER_ID || PRIVATE_VIEWER_FOLDER;
 const NOTES_FILE_NAME = process.env.VIDEO_NOTES_FILE_NAME || 'video_notes.json';
 let notesFileIdCache = process.env.VIDEO_NOTES_DRIVE_FILE_ID || null;
+
+function driveHttpStatus(err) {
+  const s = err?.response?.status;
+  if (typeof s === 'number') return s;
+  const c = err?.code;
+  if (typeof c === 'number') return c;
+  if (typeof c === 'string' && /^\d+$/.test(c)) return parseInt(c, 10);
+  return null;
+}
+
+function driveErrorDetail(err) {
+  const errors = err?.response?.data?.error?.errors;
+  if (Array.isArray(errors) && errors[0]) {
+    const e = errors[0];
+    return [e.reason, e.message].filter(Boolean).join(': ');
+  }
+  return err?.message || '';
+}
 
 async function streamToString(readable) {
   const chunks = [];
@@ -496,7 +516,7 @@ async function getDriveNotesFileId(drive, options = {}) {
   const { createIfMissing = false } = options;
   if (notesFileIdCache) return notesFileIdCache;
   const { data } = await drive.files.list({
-    q: `'${PRIVATE_VIEWER_FOLDER}' in parents and name = '${NOTES_FILE_NAME}' and trashed = false`,
+    q: `'${PRIVATE_NOTES_FOLDER}' in parents and name = '${NOTES_FILE_NAME}' and trashed = false`,
     fields: 'files(id,name,modifiedTime)',
     orderBy: 'modifiedTime desc',
     pageSize: 1,
@@ -514,7 +534,7 @@ async function getDriveNotesFileId(drive, options = {}) {
   const created = await drive.files.create({
     requestBody: {
       name: NOTES_FILE_NAME,
-      parents: [PRIVATE_VIEWER_FOLDER],
+      parents: [PRIVATE_NOTES_FOLDER],
       mimeType: 'application/json'
     },
     media: {
@@ -753,10 +773,14 @@ app.get('/api/private/videos/:id/notes', requireAuth, async (req, res) => {
     });
   } catch (err) {
     console.error('Error leyendo notas del video:', err);
-    if (err?.code === 403) {
-      return res.status(403).json({ error: 'La cuenta de servicio no tiene permisos sobre el archivo de notas' });
+    const status = driveHttpStatus(err);
+    if (status === 403) {
+      return res.status(403).json({
+        error: 'La cuenta de servicio no tiene permisos sobre el archivo de notas',
+        detail: driveErrorDetail(err)
+      });
     }
-    res.status(500).json({ error: 'No se pudo cargar el análisis del video' });
+    res.status(500).json({ error: 'No se pudo cargar el análisis del video', detail: driveErrorDetail(err) });
   }
 });
 
@@ -780,10 +804,15 @@ app.put('/api/private/videos/:id/notes', requireAdmin, async (req, res) => {
     res.json(notes[req.params.id]);
   } catch (err) {
     console.error('Error guardando notas del video:', err);
-    if (err?.code === 403) {
-      return res.status(403).json({ error: 'La cuenta de servicio no tiene permisos de edición en la carpeta para guardar análisis' });
+    const status = driveHttpStatus(err);
+    if (status === 403) {
+      return res.status(403).json({
+        error:
+          'La cuenta de servicio no puede crear o editar video_notes.json. Dale rol Editor a la carpeta (o crea VIDEO_NOTES_DRIVE_FOLDER_ID con una carpeta donde la SA sea editor).',
+        detail: driveErrorDetail(err)
+      });
     }
-    res.status(500).json({ error: 'No se pudo guardar el análisis del video' });
+    res.status(500).json({ error: 'No se pudo guardar el análisis del video', detail: driveErrorDetail(err) });
   }
 });
 
@@ -1015,6 +1044,10 @@ app.post('/api/process_publish', requirePublishEnabled, async (req, res) => {
   } finally {
     if (tempPath) await fsp.unlink(tempPath).catch(() => {});
   }
+});
+
+app.get('/favicon.ico', (req, res) => {
+  res.status(204).end();
 });
 
 app.get('/login', (req, res) => {

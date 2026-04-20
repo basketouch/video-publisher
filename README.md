@@ -12,6 +12,8 @@ Si solo quieres visualizar videos en una sala privada y no publicar desde la web
   - `VIEWER_USERNAME` y `VIEWER_PASSWORD`
 - Configura carpeta privada:
   - `PRIVATE_VIEWER_DRIVE_FOLDER_ID`
+- Opcional (si no puedes dar permiso de editor a la carpeta de vídeos): carpeta solo para el JSON de análisis, con la Service Account como **Editor**:
+  - `VIDEO_NOTES_DRIVE_FOLDER_ID`
 - Configura Service Account de Drive:
   - `GOOGLE_SERVICE_ACCOUNT_JSON` o `GOOGLE_SERVICE_ACCOUNT_JSON_BASE64`
 
