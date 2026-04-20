@@ -46,7 +46,9 @@
             { "id": "drive_file_name", "name": "drive_file_name", "value": "={{ $json.drive_file_name }}", "type": "string" },
             { "id": "title", "name": "title", "value": "={{ $json.title }}", "type": "string" },
             { "id": "description", "name": "description", "value": "={{ $json.description ?? '' }}", "type": "string" },
-            { "id": "platforms", "name": "platforms", "value": "={{ JSON.stringify($json.platforms ?? []) }}", "type": "string" }
+            { "id": "platforms", "name": "platforms", "value": "={{ JSON.stringify($json.platforms ?? []) }}", "type": "string" },
+            { "id": "scheduled_at", "name": "scheduled_at", "value": "={{ $json.scheduled_at }}", "type": "string" },
+            { "id": "options", "name": "options", "value": "={{ JSON.stringify($json.options ?? {}) }}", "type": "string" }
           ]
         }
       },
@@ -61,7 +63,7 @@
         "url": "https://video.basketouch.com/api/process_publish",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ id: $json.id, drive_file_id: $json.drive_file_id, drive_file_name: $json.drive_file_name, title: $json.title, description: $json.description, platforms: typeof $json.platforms === 'string' ? JSON.parse($json.platforms) : ($json.platforms ?? []) }) }}"
+        "jsonBody": "={{ JSON.stringify({ id: $json.id, drive_file_id: $json.drive_file_id, drive_file_name: $json.drive_file_name, title: $json.title, description: $json.description, platforms: typeof $json.platforms === 'string' ? JSON.parse($json.platforms) : ($json.platforms ?? []), scheduled_at: $json.scheduled_at && String($json.scheduled_at).trim() ? $json.scheduled_at : null, options: typeof $json.options === 'string' ? JSON.parse($json.options || '{}') : ($json.options ?? {}) }) }}"
       },
       "name": "Call Backend Publish",
       "type": "n8n-nodes-base.httpRequest",

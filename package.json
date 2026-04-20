@@ -8,11 +8,13 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",
+    "axios": "^1.13.6",
     "bcryptjs": "^3.0.3",
     "body-parser": "^1.20.2",
     "cookie-session": "^2.1.0",
     "dotenv": "^16.4.5",
     "express": "^4.21.0",
+    "form-data": "^4.0.5",
     "googleapis": "^144.0.0"
   }
 }

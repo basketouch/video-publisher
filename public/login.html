@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Acceso | Video Publisher</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; margin: 0; min-height: 100vh; display: grid; place-items: center; background: #f5f7fb; padding: 24px; }
+    .card { width: 100%; max-width: 420px; background: white; border-radius: 14px; padding: 28px; box-shadow: 0 10px 24px rgba(0,0,0,0.08); }
+    h1 { margin: 0 0 10px; font-size: 24px; }
+    p { margin: 0 0 20px; color: #5f6368; font-size: 14px; }
+    label { display: block; font-weight: 600; margin-bottom: 6px; font-size: 14px; }
+    input { width: 100%; border: 1px solid #d0d7de; border-radius: 10px; padding: 10px 12px; margin-bottom: 14px; font-size: 14px; }
+    input:focus { outline: none; border-color: #1a73e8; }
+    button { width: 100%; border: none; border-radius: 10px; background: #1a73e8; color: white; padding: 11px 14px; font-size: 14px; cursor: pointer; }
+    button:hover { background: #1557b0; }
+    .msg { margin-top: 12px; min-height: 18px; font-size: 13px; }
+    .err { color: #c5221f; }
+    .ok { color: #137333; }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <h1>Video Publisher</h1>
+    <p>Accede con tus credenciales para entrar en Admin o Sala privada.</p>
+
+    <form id="login-form">
+      <label for="username">Usuario</label>
+      <input id="username" type="text" autocomplete="username" required>
+
+      <label for="password">Contraseña</label>
+      <input id="password" type="password" autocomplete="current-password" required>
+
+      <button type="submit">Entrar</button>
+      <div id="msg" class="msg"></div>
+    </form>
+  </main>
+
+  <script>
+    const form = document.getElementById('login-form');
+    const msg = document.getElementById('msg');
+
+    function setMessage(text, type) {
+      msg.textContent = text || '';
+      msg.className = `msg ${type || ''}`;
+    }
+
+    async function initStatus() {
+      const resp = await fetch('/api/auth/status');
+      const data = await resp.json();
+      if (data.authenticated && data.role === 'admin') {
+        location.replace('/admin');
+        return;
+      }
+      if (data.authenticated && data.role === 'viewer') {
+        location.replace('/sala');
+      }
+    }
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      setMessage('');
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value;
+      const resp = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        setMessage(data.error || 'No se pudo iniciar sesión', 'err');
+        return;
+      }
+      setMessage('Acceso correcto. Redirigiendo...', 'ok');
+      if (data.role === 'admin') location.replace('/admin');
+      else location.replace('/sala');
+    });
+
+    initStatus().catch(() => setMessage('No se pudo conectar con el servidor', 'err'));
+  </script>
+</body>
+</html>

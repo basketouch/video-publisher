@@ -76,6 +76,7 @@
     <a id="auth-link" href="/auth" class="btn btn-primary">Conectar Google Drive</a>
     <a id="logout-link" href="/auth/logout" class="btn" style="display:none;">Desconectar Drive</a>
     <span id="auth-status" class="connected" style="display:none;"></span>
+    <a href="/sala" class="btn">Ir a sala privada</a>
     <a href="#" id="admin-logout" class="btn" style="display:none; margin-left:auto;">Cerrar sesión</a>
   </div>
 
@@ -112,6 +113,7 @@
             <label><input type="checkbox" name="platform" value="threads"> Threads</label>
             <label><input type="checkbox" name="platform" value="tiktok"> TikTok</label>
           </div>
+          <div class="hint">LinkedIn, X, etc. requieren el ID de integración en Postiz (<code>POSTIZ_INTEGRATION_MAP</code> en el servidor). YouTube puede ir directo a Google o vía Postiz si añades <code>youtube</code> al mapa.</div>
         </div>
         <div class="form-group">
           <label for="description">Descripción</label>
@@ -214,7 +216,7 @@
 
       // Con USE_SA_DRIVE, Drive funciona sin OAuth; la conexión es solo para YouTube
       if (useServiceAccountDrive) {
-        const statusResp = await fetch('/api/auth/status');
+        const statusResp = await fetch('/api/google/status');
         const status = await safeJson(statusResp);
         const connected = !!status.connected;
         authLink.textContent = connected ? 'Cambiar cuenta YouTube' : 'Conectar YouTube';
