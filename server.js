@@ -8,19 +8,21 @@ const axios = require('axios');
 const FormData = require('form-data');
 const bodyParser = require('body-parser');
 const cookieSession = require('cookie-session');
-const bcrypt = require('bcryptjs');
 const { google } = require('googleapis');
 const { createClient } = require('@supabase/supabase-js');
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'info@basketouch.com';
+const ADMIN_USERNAME = (process.env.ADMIN_USERNAME || ADMIN_EMAIL || '').trim().toLowerCase();
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
 const VIEWER_USERNAME = (process.env.VIEWER_USERNAME || '').trim().toLowerCase();
 const VIEWER_PASSWORD = process.env.VIEWER_PASSWORD || '';
+const WEB_PUBLISH_ENABLED = process.env.WEB_PUBLISH_ENABLED === 'true';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Validar variables de entorno (en Vercel no usamos process.exit para ver el error)
-const required = ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'SUPABASE_URL', 'SUPABASE_SERVICE_KEY', 'SESSION_SECRET'];
+// Validar variables de entorno mínimas
+const required = ['SESSION_SECRET'];
 const missingVars = required.filter(k => !process.env[k]);
 if (missingVars.length && require.main === module) {
   console.error('Faltan variables de entorno:', missingVars.join(', '));
@@ -80,18 +82,7 @@ let USE_SA_DRIVE = !!_saCreds;
 
 async function ensureServiceAccountCreds() {
   if (_saCreds) return _saCreds;
-  try {
-    const sb = getSupabase();
-    if (!sb) return null;
-    const { data, error } = await sb.from('service_account_creds').select('json_data').eq('id', 'default').maybeSingle();
-    if (error || !data?.json_data) return null;
-    _saCreds = data.json_data;
-    USE_SA_DRIVE = true;
-    return _saCreds;
-  } catch (e) {
-    console.error('Error leyendo Service Account desde Supabase:', e.message);
-    return null;
-  }
+  return null;
 }
 
 function getDriveServiceAccountClient() {
@@ -342,47 +333,31 @@ function requireAdmin(req, res, next) {
   return res.redirect('/login');
 }
 
+function requirePublishEnabled(req, res, next) {
+  if (WEB_PUBLISH_ENABLED) return next();
+  if (req.path.startsWith('/api/')) {
+    return res.status(410).json({ error: 'Publicación web desactivada en este entorno' });
+  }
+  return res.redirect('/sala');
+}
+
 // --- Rutas públicas (no requieren login admin) ---
 
 // Estado de acceso para login y redirección
 app.get('/api/auth/status', async (req, res) => {
-  try {
-    const { data } = await getSupabase().from('app_admin').select('id').eq('email', ADMIN_EMAIL.trim().toLowerCase()).maybeSingle();
-    const needsSetup = !data;
-    const role = getSessionRole(req);
-    res.json({
-      authenticated: !!role,
-      role,
-      needsSetup,
-      viewerEnabled: !!(VIEWER_USERNAME && VIEWER_PASSWORD)
-    });
-  } catch (err) {
-    console.error('Error api/auth/status:', err);
-    res.status(500).json({ authenticated: false, role: null, needsSetup: true, viewerEnabled: false });
-  }
+  const role = getSessionRole(req);
+  res.json({
+    authenticated: !!role,
+    role,
+    needsSetup: false,
+    viewerEnabled: !!(VIEWER_USERNAME && VIEWER_PASSWORD),
+    adminEnabled: !!(ADMIN_USERNAME && ADMIN_PASSWORD)
+  });
 });
 
 // Primera vez: crear contraseña (el usuario viene de ADMIN_EMAIL en env)
 app.post('/api/admin/setup', async (req, res) => {
-  const { password } = req.body;
-  if (!password || password.length < 6) {
-    return res.status(400).json({ error: 'Contraseña mínimo 6 caracteres' });
-  }
-  try {
-    const { data: existing } = await getSupabase().from('app_admin').select('id').eq('email', ADMIN_EMAIL.trim().toLowerCase()).maybeSingle();
-    if (existing) {
-      return res.status(400).json({ error: 'El administrador ya está configurado. Usa Iniciar sesión.' });
-    }
-    const passwordHash = bcrypt.hashSync(password, 10);
-    await getSupabase().from('app_admin').insert({ email: ADMIN_EMAIL.trim().toLowerCase(), password_hash: passwordHash });
-    req.session.userRole = 'admin';
-    req.session.userEmail = ADMIN_EMAIL.trim().toLowerCase();
-    req.session.adminLoggedIn = true;
-    res.json({ success: true, role: 'admin' });
-  } catch (err) {
-    console.error('Error api/admin/setup:', err);
-    res.status(500).json({ error: err.message });
-  }
+  res.status(410).json({ error: 'Setup por web desactivado. Configura ADMIN_USERNAME y ADMIN_PASSWORD en variables de entorno.' });
 });
 
 // Login único para admin/viewer
@@ -404,19 +379,14 @@ app.post('/api/auth/login', async (req, res) => {
     return res.json({ success: true, role: 'viewer' });
   }
 
-  try {
-    const { data } = await getSupabase().from('app_admin').select('password_hash').eq('email', normalizedUsername).maybeSingle();
-    if (!data || !bcrypt.compareSync(password, data.password_hash)) {
-      return res.status(401).json({ error: 'Credenciales incorrectas' });
-    }
+  if (ADMIN_USERNAME && ADMIN_PASSWORD && normalizedUsername === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
     req.session.userRole = 'admin';
     req.session.userEmail = normalizedUsername;
     req.session.adminLoggedIn = true;
-    res.json({ success: true, role: 'admin' });
-  } catch (err) {
-    console.error('Error api/auth/login:', err);
-    res.status(500).json({ error: err.message });
+    return res.json({ success: true, role: 'admin' });
   }
+
+  return res.status(401).json({ error: 'Credenciales incorrectas' });
 });
 
 app.post('/api/auth/logout', (req, res) => {
@@ -426,13 +396,7 @@ app.post('/api/auth/logout', (req, res) => {
 
 // Compatibilidad temporal con llamadas antiguas
 app.get('/api/admin/status', async (req, res) => {
-  try {
-    const { data } = await getSupabase().from('app_admin').select('id').eq('email', ADMIN_EMAIL.trim().toLowerCase()).maybeSingle();
-    res.json({ needsSetup: !data, loggedIn: getSessionRole(req) === 'admin' });
-  } catch (err) {
-    console.error('Error api/admin/status:', err);
-    res.status(500).json({ needsSetup: true, loggedIn: false });
-  }
+  res.json({ needsSetup: false, loggedIn: getSessionRole(req) === 'admin' });
 });
 app.post('/api/admin/login', async (req, res) => {
   const email = (req.body?.email || '').trim().toLowerCase();
@@ -440,19 +404,13 @@ app.post('/api/admin/login', async (req, res) => {
   if (!email || !password) {
     return res.status(400).json({ error: 'Credenciales incorrectas' });
   }
-  try {
-    const { data } = await getSupabase().from('app_admin').select('password_hash').eq('email', email).maybeSingle();
-    if (!data || !bcrypt.compareSync(password, data.password_hash)) {
-      return res.status(401).json({ error: 'Credenciales incorrectas' });
-    }
+  if (ADMIN_USERNAME && ADMIN_PASSWORD && email === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
     req.session.userRole = 'admin';
     req.session.userEmail = email;
     req.session.adminLoggedIn = true;
-    res.json({ success: true, role: 'admin' });
-  } catch (err) {
-    console.error('Error api/admin/login:', err);
-    res.status(500).json({ error: err.message });
+    return res.json({ success: true, role: 'admin' });
   }
+  return res.status(401).json({ error: 'Credenciales incorrectas' });
 });
 app.post('/api/admin/logout', (req, res) => {
   req.session = null;
@@ -473,7 +431,7 @@ const OAUTH_SCOPES_YOUTUBE_ONLY = [
 ];
 
 // Redirige a Google: solo YouTube si usamos SA para Drive; Drive+YouTube si no
-app.get('/auth', requireAdmin, async (req, res) => {
+app.get('/auth', requireAdmin, requirePublishEnabled, async (req, res) => {
   await ensureServiceAccountCreds();
   const redirectUri = getRedirectUri(req);
   const oauth2Client = getOAuth2Client(redirectUri);
@@ -487,7 +445,7 @@ app.get('/auth', requireAdmin, async (req, res) => {
 });
 
 // Recibe el code de Google, guarda tokens en sesión y en Supabase (para process_publish)
-app.get('/api/auth/callback', requireAdmin, async (req, res) => {
+app.get('/api/auth/callback', requireAdmin, requirePublishEnabled, async (req, res) => {
   const { code } = req.query;
   if (!code) {
     return res.redirect('/?error=no_code');
@@ -512,7 +470,7 @@ app.get('/api/auth/callback', requireAdmin, async (req, res) => {
 });
 
 // Cerrar sesión
-app.get('/auth/logout', requireAdmin, (req, res) => {
+app.get('/auth/logout', requireAdmin, requirePublishEnabled, (req, res) => {
   req.session = null;
   res.redirect('/');
 });
@@ -520,7 +478,7 @@ app.get('/auth/logout', requireAdmin, (req, res) => {
 // Config para el frontend (carpeta por defecto)
 const DEFAULT_FOLDER = process.env.DEFAULT_DRIVE_FOLDER_ID || '1y6rIQTNtqeRaq-z8Vw8kaWFvy_2moRtD';
 const PRIVATE_VIEWER_FOLDER = process.env.PRIVATE_VIEWER_DRIVE_FOLDER_ID || DEFAULT_FOLDER;
-app.get('/api/config', requireAdmin, async (req, res) => {
+app.get('/api/config', requireAdmin, requirePublishEnabled, async (req, res) => {
   await ensureServiceAccountCreds();
   res.json({
     defaultFolderId: DEFAULT_FOLDER,
@@ -529,7 +487,7 @@ app.get('/api/config', requireAdmin, async (req, res) => {
 });
 
 // Estado de conexión OAuth de Google (solo admin)
-app.get('/api/google/status', requireAdmin, (req, res) => {
+app.get('/api/google/status', requireAdmin, requirePublishEnabled, (req, res) => {
   res.json({ connected: !!req.session?.tokens });
 });
 
@@ -547,7 +505,7 @@ async function getDriveClient(req) {
 // Lista carpetas y vídeos de Drive (con navegación por carpeta)
 // Con USE_SA_DRIVE: usa Service Account (no requiere sesión OAuth)
 // Sin USE_SA_DRIVE: usa OAuth del usuario
-app.get('/api/drive/files', requireAdmin, async (req, res) => {
+app.get('/api/drive/files', requireAdmin, requirePublishEnabled, async (req, res) => {
   await ensureServiceAccountCreds();
   let auth = null;
   if (USE_SA_DRIVE) {
@@ -700,7 +658,7 @@ app.get('/api/private/videos/:id/stream', requireAuth, async (req, res) => {
 
 // Inserta fila en publish_queue de Supabase
 // Con USE_SA_DRIVE: solo se necesita YouTube (tokens); sin SA: Drive+YouTube
-app.post('/api/queue', requireAdmin, async (req, res) => {
+app.post('/api/queue', requireAdmin, requirePublishEnabled, async (req, res) => {
   await ensureServiceAccountCreds();
   const hasTokens = !!req.session?.tokens;
   const { title, description, drive_file_id, drive_file_name, platforms, scheduled_at, options } = req.body;
@@ -773,7 +731,7 @@ async function getStoredOAuthClient() {
 }
 
 // Endpoint que n8n llama para procesar cada fila pendiente de publish_queue
-app.post('/api/process_publish', async (req, res) => {
+app.post('/api/process_publish', requirePublishEnabled, async (req, res) => {
   const {
     id,
     drive_file_id,
@@ -932,7 +890,7 @@ app.get('/login', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'login.html'));
 });
 
-app.get('/admin', requireAdmin, (req, res) => {
+app.get('/admin', requireAdmin, requirePublishEnabled, (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 

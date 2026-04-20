@@ -2,6 +2,21 @@
 
 Webapp ligera para conectar Google Drive, listar vídeos, seleccionar uno, rellenar metadatos y crear filas en la tabla `publish_queue` de Supabase. n8n tomará esas filas para publicar.
 
+## Modo sala privada (sin Supabase)
+
+Si solo quieres visualizar videos en una sala privada y no publicar desde la web:
+
+- Define `WEB_PUBLISH_ENABLED=false` (valor por defecto).
+- Configura acceso por variables:
+  - `ADMIN_USERNAME` y `ADMIN_PASSWORD` (opcional)
+  - `VIEWER_USERNAME` y `VIEWER_PASSWORD`
+- Configura carpeta privada:
+  - `PRIVATE_VIEWER_DRIVE_FOLDER_ID`
+- Configura Service Account de Drive:
+  - `GOOGLE_SERVICE_ACCOUNT_JSON` o `GOOGLE_SERVICE_ACCOUNT_JSON_BASE64`
+
+Con este modo, la app usa `/login` y `/sala`, y los endpoints de publicación web quedan desactivados.
+
 ## Requisitos previos
 
 - Node.js 18+
