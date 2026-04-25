@@ -1,0 +1,14 @@
+---
+description: Tras modificar archivos en este repo, publicar en GitHub (commit + push)
+alwaysApply: true
+---
+
+# Git: commit y push en cada sesión con cambios
+
+Si en esta conversación se **editan, crean o borran** archivos en el repositorio `video-publisher`:
+
+1. `git add` de los archivos afectados (o `git add -A` si aplica a todo el cambio de la tarea).
+2. `git commit` con un mensaje claro en español (o inglés, coherente con el histórico del repo) que resuma el cambio.
+3. `git push` a `origin` (rama actual, en general `main`).
+
+No dejes cambios locales sin subir al final de la tarea, salvo que el usuario pida explícitamente no hacer push. Si el push falla, informa y sugiere revisar red o credenciales.

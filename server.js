@@ -12,16 +12,11 @@ const cookieSession = require('cookie-session');
 const { google } = require('googleapis');
 const { createClient } = require('@supabase/supabase-js');
 const { aggregateFromXmlString } = require('./lib/statsFromScoutingXml');
-const { listGames, getGameXmlAndTitle, saveGame } = require('./lib/salaGamesStore');
-const multer = require('multer');
+const { listGames, getGameXmlAndTitle } = require('./lib/salaGamesStore');
 
 const GAMES_DATA_DIR = process.env.GAME_DATA_DIR
   ? path.resolve(process.env.GAME_DATA_DIR)
   : path.join(__dirname, 'data', 'games');
-const gamesUpload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 6 * 1024 * 1024 }
-});
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'info@basketouch.com';
 const ADMIN_USERNAME = (process.env.ADMIN_USERNAME || ADMIN_EMAIL || '').trim().toLowerCase();
@@ -506,8 +501,7 @@ function getSalaGamesStoreContext() {
       if (!auth) return null;
       return google.drive({ version: 'v3', auth });
     },
-    driveFolderId: SALA_GAMES_DRIVE_FOLDER,
-    requireDriveInProd: Boolean(process.env.VERCEL)
+    driveFolderId: SALA_GAMES_DRIVE_FOLDER
   };
 }
 
@@ -850,7 +844,7 @@ app.put('/api/private/videos/:id/notes', requireAdmin, async (req, res) => {
   }
 });
 
-// XML de partidos: Google Drive (carpeta) +/o data/games solo en entorno local
+// XML de partidos: listado/lectura desde Google Drive (carpeta) y/o data/games en local; sin subida vía web
 app.get('/api/private/games', requireAuth, async (req, res) => {
   try {
     const list = await listGames(GAMES_DATA_DIR, getSalaGamesStoreContext());
@@ -860,46 +854,6 @@ app.get('/api/private/games', requireAuth, async (req, res) => {
     res.status(500).json({ error: 'No se pudo leer el listado de partidos' });
   }
 });
-
-app.post(
-  '/api/private/games/upload',
-  requireAuth,
-  requireAdmin,
-  (req, res, next) => {
-    gamesUpload.single('file')(req, res, (err) => {
-      if (err instanceof multer.MulterError) {
-        if (err.code === 'LIMIT_FILE_SIZE') {
-          return res.status(400).json({ error: 'El XML supera el tamaño máximo (6 MB)' });
-        }
-        return res.status(400).json({ error: err.message });
-      }
-      if (err) return next(err);
-      next();
-    });
-  },
-  async (req, res) => {
-    const file = req.file;
-    if (!file || !file.buffer) {
-      return res.status(400).json({ error: 'Falta el archivo XML' });
-    }
-    const name = (file.originalname || 'partido.xml').toLowerCase();
-    if (!name.endsWith('.xml') && file.mimetype !== 'text/xml' && file.mimetype !== 'application/xml') {
-      return res.status(400).json({ error: 'Solo se admiten archivos .xml' });
-    }
-    const title = (req.body && (req.body.title || req.body.name)) || '';
-    const xml = file.buffer.toString('utf8');
-    try {
-      const r = await saveGame({ title, xml, gamesDir: GAMES_DATA_DIR, ctx: getSalaGamesStoreContext() });
-      if (r.error) {
-        return res.status(400).json({ error: r.error });
-      }
-      return res.json({ id: r.id, title: r.title, source: r.source });
-    } catch (e) {
-      console.error('Error guardando partido XML:', e);
-      res.status(500).json({ error: 'No se pudo guardar el partido' });
-    }
-  }
-);
 
 app.get('/api/private/games/:id/stats', requireAuth, async (req, res) => {
   let bundle;
