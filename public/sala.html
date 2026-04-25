@@ -481,7 +481,7 @@
         efg: 'Eficiencia ajustada: eFG% incluye el valor del triple. TS% incluye el impacto de los tiros libres. Escala 0–100 %.',
         mix: 'Orden: más anotación arriba. Al pasar el ratón, metidos e intentos por 2P, 3P y tiro libre.'
       };
-      const CHART_FILE = { pps: 'fga-pps', efg: 'efg-ts', mix: 'anatomia-ataque-eventos' };
+      const CHART_FILE = { pps: 'fga-pps', efg: 'efg-ts', mix: 'anatomia-ataque' };
       const PTS_FT_GRAY = '#8d8d8d';
 
       function getTeamColor(team) {
@@ -826,7 +826,7 @@
         const { players } = payload;
         const gridMix = { right: 36, top: 70, bottom: 28, left: 12, containLabel: true };
         const baseTitle = {
-          text: 'Anatomía del ataque (eventos)',
+          text: 'Anatomía del ataque',
           left: 'center',
           top: 10,
           textStyle: { fontSize: 15, color: LAKERS_GOLD, fontWeight: 600 }
