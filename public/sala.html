@@ -411,7 +411,7 @@
               <div class="chart-type-tabs" role="tablist" aria-label="Tipo de gráfico">
                 <button type="button" class="chart-type-tab active" data-chart="pps" role="tab" aria-selected="true">FGA / PPS</button>
                 <button type="button" class="chart-type-tab" data-chart="efg" role="tab" aria-selected="false">eFG% / TS%</button>
-                <button type="button" class="chart-type-tab" data-chart="mix" role="tab" aria-selected="false" title="Puntos 2P, 3P y tiros libres (anatomía del ataque)">Anatomía</button>
+                <button type="button" class="chart-type-tab" data-chart="mix" role="tab" aria-selected="false" title="Con conteo de canastas 2P, 3P y TL anotados (instancias en el XML), no en puntos">Anatomía</button>
               </div>
               <div class="chart-embed-tools">
                 <button type="button" class="chart-tool" id="btn-fullscreen" disabled title="Pantalla completa" aria-label="Pantalla completa">
@@ -472,9 +472,9 @@
       const CHART_HINTS = {
         pps: 'Eficiencia: volumen (FGA) frente a PPS. PPS = puntos de canasta de campo (sin tiros libres) entre intentos (FGA).',
         efg: 'Eficiencia ajustada: eFG% incluye el valor del triple. TS% incluye el impacto de los tiros libres. Escala 0–100 %.',
-        mix: 'Volumen horizontal de puntos anotados y origen: morado = canastas 2P (y canasta de un 2+1), oro = triples, gris = tiros libres. Sin TL en el gráfico = sin acierto en instancias «FT Made». Orden: más puntos arriba.'
+        mix: 'Con conteos fieles al XML: morado = canastas 2P anotadas (FGM2, incl. la canasta de un 2+1), oro = triples anotados (FGM3, incl. canasta 3+1), gris = tiros libres anotados (FTM, 1 instancia = 1 acierto). Eje = suma de instancias, no puntos. Orden: más “actividad de acierto” arriba.'
       };
-      const CHART_FILE = { pps: 'fga-pps', efg: 'efg-ts', mix: 'anatomia-ataque' };
+      const CHART_FILE = { pps: 'fga-pps', efg: 'efg-ts', mix: 'anatomia-ataque-eventos' };
       const PTS_FT_GRAY = '#8d8d8d';
 
       function getTeamColor(team) {
@@ -819,33 +819,22 @@
         const { players } = payload;
         const gridMix = { right: 36, top: 70, bottom: 28, left: 12, containLabel: true };
         const baseTitle = {
-          text: 'Anatomía del ataque',
+          text: 'Anatomía del ataque (eventos)',
           left: 'center',
           top: 10,
           textStyle: { fontSize: 15, color: LAKERS_GOLD, fontWeight: 600 }
         };
-        const withPts = (players || [])
+        const withEv = (players || [])
           .map((p) => {
-            const fg = p.fieldGoalPoints != null ? p.fieldGoalPoints : 0;
-            const tot = p.pointsTotal != null ? p.pointsTotal : fg;
-            let a2;
-            let a3;
-            let ft;
-            if (p.points2pt != null && p.points3pt != null && p.pointsFt != null) {
-              a2 = p.points2pt;
-              a3 = p.points3pt;
-              ft = p.pointsFt;
-            } else {
-              a2 = Math.max(0, fg);
-              a3 = 0;
-              ft = Math.max(0, tot - fg);
-            }
-            const totSeg = a2 + a3 + ft;
-            return { p, a2, a3, ft, tot: totSeg > 0 ? totSeg : tot };
+            const a2 = p.fgm2 != null ? p.fgm2 : 0;
+            const a3 = p.fgm3 != null ? p.fgm3 : 0;
+            const ft = p.ftm != null ? p.ftm : 0;
+            const tot = a2 + a3 + ft;
+            return { p, a2, a3, ft, tot };
           })
           .filter((r) => (r.tot || 0) > 0)
           .sort((x, y) => y.tot - x.tot);
-        if (!withPts.length) {
+        if (!withEv.length) {
           return {
             backgroundColor: CHART_CANVAS_BG,
             textStyle: { color: AXIS_LABEL },
@@ -857,15 +846,15 @@
             series: [],
             graphic: [{
               type: 'text', left: 'center', top: '52%',
-              style: { text: 'No hay puntos anotados para mostrar (revisa el XML)', fill: CHART_SUBTEXT, fontSize: 12 }
+              style: { text: 'Ningún FGM2, FGM3 o FTM registrado para este filtro (revisa el XML).', fill: CHART_SUBTEXT, fontSize: 12 }
             }]
           };
         }
-        const cat = withPts.map((r) => (r.p.label || r.p.name || '').toString().slice(0, 24));
-        const d2 = withPts.map((r) => r.a2);
-        const d3 = withPts.map((r) => r.a3);
-        const dFt = withPts.map((r) => r.ft);
-        const yMax = Math.max(1, ...withPts.map((r) => r.tot));
+        const cat = withEv.map((r) => (r.p.label || r.p.name || '').toString().slice(0, 24));
+        const d2 = withEv.map((r) => r.a2);
+        const d3 = withEv.map((r) => r.a3);
+        const dFt = withEv.map((r) => r.ft);
+        const yMax = Math.max(1, ...withEv.map((r) => r.tot));
         const xMax = yMax + Math.max(1, Math.ceil(yMax * 0.05));
         return {
           backgroundColor: CHART_CANVAS_BG,
@@ -883,12 +872,13 @@
           },
           xAxis: {
             type: 'value',
-            name: 'Puntos anotados (volumen total)',
+            name: 'Aciertos (conteo de instancias: FGM2 + FGM3 + FTM)',
             nameLocation: 'middle',
-            nameGap: 28,
+            nameGap: 32,
             min: 0,
             max: xMax,
-            nameTextStyle: { color: AXIS_NAME, fontSize: 11 },
+            minInterval: 1,
+            nameTextStyle: { color: AXIS_NAME, fontSize: 10 },
             axisLine: { lineStyle: { color: 'rgba(0, 0, 0, 0.2)' } },
             axisLabel: { color: AXIS_LABEL },
             splitLine: { show: true, lineStyle: { type: 'dotted', color: 'rgba(0, 0, 0, 0.1)' } }
@@ -903,28 +893,28 @@
             axisLabel: { color: AXIS_LABEL, width: 118, overflow: 'truncate', fontSize: 10, align: 'right' },
             triggerEvent: true
           },
-          legend: { ...legendDef, data: ['2P (canasta, 2+1)', '3P (triples)', 'TL'], show: true, top: 40 },
+          legend: { ...legendDef, data: ['Canastas 2P (FGM2)', 'Triples (FGM3)', 'TL anotados (FTM)'], show: true, top: 40 },
           series: [
             {
-              name: '2P (canasta, 2+1)',
+              name: 'Canastas 2P (FGM2)',
               type: 'bar',
-              stack: 'pts',
+              stack: 'ev',
               data: d2,
               barMaxWidth: 20,
               itemStyle: { color: LAKERS_PURPLE }
             },
             {
-              name: '3P (triples)',
+              name: 'Triples (FGM3)',
               type: 'bar',
-              stack: 'pts',
+              stack: 'ev',
               data: d3,
               barMaxWidth: 20,
               itemStyle: { color: LAKERS_GOLD }
             },
             {
-              name: 'TL',
+              name: 'TL anotados (FTM)',
               type: 'bar',
-              stack: 'pts',
+              stack: 'ev',
               data: dFt,
               barMaxWidth: 20,
               itemStyle: { color: PTS_FT_GRAY },
