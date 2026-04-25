@@ -388,7 +388,7 @@
               <div class="chart-type-tabs" role="tablist" aria-label="Tipo de gráfico">
                 <button type="button" class="chart-type-tab active" data-chart="pps" role="tab" aria-selected="true">FGA / PPS</button>
                 <button type="button" class="chart-type-tab" data-chart="efg" role="tab" aria-selected="false">eFG% / TS%</button>
-                <button type="button" class="chart-type-tab" data-chart="mix" role="tab" aria-selected="false" title="FGA 2P y 3P en barras apiladas (etiquetado en el XML)">2P + 3P</button>
+                <button type="button" class="chart-type-tab" data-chart="mix" role="tab" aria-selected="false" title="Puntos 2P, 3P y tiros libres (anatomía del ataque)">Anatomía</button>
               </div>
               <div class="chart-embed-tools">
                 <button type="button" class="chart-tool" id="btn-fullscreen" disabled title="Pantalla completa" aria-label="Pantalla completa">
@@ -441,9 +441,10 @@
       const CHART_HINTS = {
         pps: 'Eficiencia: volumen (FGA) frente a PPS. PPS = puntos de canasta de campo (sin tiros libres) entre intentos (FGA).',
         efg: 'Eficiencia ajustada: eFG% incluye el valor del triple. TS% incluye el impacto de los tiros libres. Escala 0–100 %.',
-        mix: 'Desglose fiel al XML: cada tiro 2P o 3P suma 1 a FGA2 o FGA3. Barras apiladas = volumen total (altura) y reparto 2/3 (colores: morado 2P, oro 3P).'
+        mix: 'Volumen horizontal de puntos anotados y origen: morado = canastas 2P (y canasta de un 2+1), oro = triples, gris = tiros libres. Sin TL en el gráfico = sin acierto en instancias «FT Made». Orden: más puntos arriba.'
       };
-      const CHART_FILE = { pps: 'fga-pps', efg: 'efg-ts', mix: 'fga-2p-3p-stack' };
+      const CHART_FILE = { pps: 'fga-pps', efg: 'efg-ts', mix: 'anatomia-ataque' };
+      const PTS_FT_GRAY = '#8d8d8d';
 
       function getTeamColor(team) {
         if (/Lakers/i.test(team)) return LAKERS_GOLD;
@@ -736,100 +737,130 @@
 
       function buildOptionMix(payload) {
         const { players } = payload;
-        const gridMix = { ...gridDef, left: 48, right: 24, top: 66, bottom: 80 };
+        const gridMix = { right: 36, top: 70, bottom: 28, left: 12, containLabel: true };
         const baseTitle = {
-          text: 'Perfil de tiro: FGA 2P y 3P (barras apiladas)',
+          text: 'Anatomía del ataque',
           left: 'center',
           top: 10,
           textStyle: { fontSize: 15, color: LAKERS_GOLD, fontWeight: 600 }
         };
-        const rows = (players || []).filter((p) => (p.fga || 0) >= 1);
-        if (!rows.length) {
+        const withPts = (players || [])
+          .map((p) => {
+            const fg = p.fieldGoalPoints != null ? p.fieldGoalPoints : 0;
+            const tot = p.pointsTotal != null ? p.pointsTotal : fg;
+            let a2;
+            let a3;
+            let ft;
+            if (p.points2pt != null && p.points3pt != null && p.pointsFt != null) {
+              a2 = p.points2pt;
+              a3 = p.points3pt;
+              ft = p.pointsFt;
+            } else {
+              a2 = Math.max(0, fg);
+              a3 = 0;
+              ft = Math.max(0, tot - fg);
+            }
+            const totSeg = a2 + a3 + ft;
+            return { p, a2, a3, ft, tot: totSeg > 0 ? totSeg : tot };
+          })
+          .filter((r) => (r.tot || 0) > 0)
+          .sort((x, y) => y.tot - x.tot);
+        if (!withPts.length) {
           return {
             backgroundColor: CHART_CANVAS_BG,
             textStyle: { color: AXIS_LABEL },
             title: baseTitle,
             grid: gridMix,
-            xAxis: { type: 'category', data: [] },
-            yAxis: { type: 'value', min: 0 },
+            xAxis: { type: 'value', min: 0 },
+            yAxis: { type: 'category', data: [] },
             legend: { show: false },
             series: [],
             graphic: [{
               type: 'text', left: 'center', top: '52%',
-              style: { text: 'No hay jugadores con al menos un tiro de campo (FGA)', fill: CHART_SUBTEXT, fontSize: 12 }
+              style: { text: 'No hay puntos anotados para mostrar (revisa el XML)', fill: CHART_SUBTEXT, fontSize: 12 }
             }]
           };
         }
-        const cat = rows.map((p) => (p.label || p.name || '').toString().slice(0, 18));
-        const fga2d = [];
-        const fga3d = [];
-        rows.forEach((p) => {
-          let a2 = p.fga2 != null ? p.fga2 : 0;
-          let a3 = p.fga3 != null ? p.fga3 : 0;
-          const f = p.fga || 0;
-          if (a2 + a3 === 0 && f > 0) a2 = f;
-          else if (a2 + a3 < f) a2 += f - a2 - a3;
-          fga2d.push(a2);
-          fga3d.push(a3);
-        });
-        const sums = fga2d.map((a, i) => a + fga3d[i]);
-        const yMax = Math.max(1, ...sums);
+        const cat = withPts.map((r) => (r.p.label || r.p.name || '').toString().slice(0, 24));
+        const d2 = withPts.map((r) => r.a2);
+        const d3 = withPts.map((r) => r.a3);
+        const dFt = withPts.map((r) => r.ft);
+        const yMax = Math.max(1, ...withPts.map((r) => r.tot));
+        const xMax = yMax + Math.max(1, Math.ceil(yMax * 0.05));
         return {
           backgroundColor: CHART_CANVAS_BG,
           textStyle: { color: AXIS_LABEL },
-          animationDuration: 550,
+          animationDuration: 600,
           title: baseTitle,
-          grid: gridMix,
+          grid: { ...gridMix },
           tooltip: {
             trigger: 'axis',
+            axisPointer: { type: 'shadow' },
             backgroundColor: 'rgba(255, 255, 255, 0.98)',
             borderColor: 'rgba(85, 37, 131, 0.28)',
             borderWidth: 1,
             textStyle: { color: IN_GRID_TEXT }
           },
           xAxis: {
-            type: 'category',
-            boundaryGap: [0.08, 0.08],
-            data: cat,
-            axisLabel: {
-              color: AXIS_LABEL,
-              rotate: 32,
-              fontSize: 9,
-              interval: 0
-            },
-            axisLine: { lineStyle: { color: 'rgba(0, 0, 0, 0.2)' } },
-            splitLine: { show: false }
-          },
-          yAxis: {
             type: 'value',
-            name: 'FGA (2P+3P)',
+            name: 'Puntos anotados (volumen total)',
             nameLocation: 'middle',
-            nameGap: 40,
+            nameGap: 28,
             min: 0,
-            max: yMax,
-            minInterval: 1,
+            max: xMax,
             nameTextStyle: { color: AXIS_NAME, fontSize: 11 },
             axisLine: { lineStyle: { color: 'rgba(0, 0, 0, 0.2)' } },
             axisLabel: { color: AXIS_LABEL },
             splitLine: { show: true, lineStyle: { type: 'dotted', color: 'rgba(0, 0, 0, 0.1)' } }
           },
-          legend: { ...legendDef, data: ['FGA 2P', 'FGA 3P'], show: true },
+          yAxis: {
+            type: 'category',
+            data: cat,
+            inverse: true,
+            name: 'Jugador',
+            nameTextStyle: { color: AXIS_NAME, fontSize: 10 },
+            axisLine: { lineStyle: { color: 'rgba(0, 0, 0, 0.2)' } },
+            axisLabel: { color: AXIS_LABEL, width: 118, overflow: 'truncate', fontSize: 10, align: 'right' },
+            triggerEvent: true
+          },
+          legend: { ...legendDef, data: ['2P (canasta, 2+1)', '3P (triples)', 'TL'], show: true, top: 40 },
           series: [
             {
-              name: 'FGA 2P',
+              name: '2P (canasta, 2+1)',
               type: 'bar',
-              stack: 'fga',
-              data: fga2d,
-              barMaxWidth: 40,
+              stack: 'pts',
+              data: d2,
+              barMaxWidth: 20,
               itemStyle: { color: LAKERS_PURPLE }
             },
             {
-              name: 'FGA 3P',
+              name: '3P (triples)',
               type: 'bar',
-              stack: 'fga',
-              data: fga3d,
-              barMaxWidth: 40,
+              stack: 'pts',
+              data: d3,
+              barMaxWidth: 20,
               itemStyle: { color: LAKERS_GOLD }
+            },
+            {
+              name: 'TL',
+              type: 'bar',
+              stack: 'pts',
+              data: dFt,
+              barMaxWidth: 20,
+              itemStyle: { color: PTS_FT_GRAY },
+              label: {
+                show: true,
+                position: 'right',
+                color: AXIS_NAME,
+                fontSize: 10,
+                fontWeight: 600,
+                distance: 4,
+                formatter: (e) => {
+                  const i = e.dataIndex;
+                  const t = (d2[i] || 0) + (d3[i] || 0) + (dFt[i] || 0);
+                  return t > 0 ? String(t) : '';
+                }
+              }
             }
           ]
         };
