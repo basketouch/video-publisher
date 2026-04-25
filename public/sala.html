@@ -940,20 +940,7 @@
               stack: 'ev',
               data: dFt,
               barMaxWidth: 20,
-              itemStyle: { color: PTS_FT_GRAY },
-              label: {
-                show: true,
-                position: 'right',
-                color: AXIS_NAME,
-                fontSize: 10,
-                fontWeight: 600,
-                distance: 4,
-                formatter: (e) => {
-                  const i = e.dataIndex;
-                  const t = (d2[i] || 0) + (d3[i] || 0) + (dFt[i] || 0);
-                  return t > 0 ? String(t) : '';
-                }
-              }
+              itemStyle: { color: PTS_FT_GRAY }
             }
           ]
         };
