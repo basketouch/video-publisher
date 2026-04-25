@@ -346,6 +346,7 @@
       box-shadow: 0 2px 16px rgba(0, 0, 0, 0.08);
     }
     .tab-pane[hidden] { display: none !important; }
+    .chart-page-notes { margin-top: 16px; }
     @media (max-width: 980px) {
       .layout { grid-template-columns: 1fr; }
       .brand-title { font-size: 22px; }
@@ -435,6 +436,17 @@
             </div>
             <div id="chart-pps" class="chart-box" aria-label="Gráfico de estadísticas"></div>
           </div>
+          <div class="notes-box chart-page-notes" id="game-chart-notes-wrap">
+            <div class="notes-header">
+              <span class="notes-title">Anotaciones</span>
+              <span id="game-chart-notes-meta" class="notes-meta"></span>
+            </div>
+            <div id="game-chart-notes-text" class="notes-text">Selecciona un partido y una pestaña de gráfico.</div>
+            <textarea id="game-chart-notes-editor" class="notes-editor" maxlength="5000" placeholder="Anotacion para este partido y este gráfico (FGA / PPS, eFG / TS o Anatomía)…" aria-label="Anotación del gráfico"></textarea>
+            <div id="game-chart-notes-actions" class="notes-actions">
+              <button id="save-game-chart-notes" class="btn btn-save" type="button">Guardar anotación</button>
+            </div>
+          </div>
           <p id="chart-empty" class="empty" style="display:none; margin-top:12px">No hay partidos. Coloca archivos .xml en la carpeta de Drive (compartida con la service account) y vuelve a abrir o recarga la lista.</p>
         </div>
       </section>
@@ -482,6 +494,12 @@
         mix: 'Orden: más anotación arriba. Al pasar el ratón, metidos e intentos por 2P, 3P y tiro libre.'
       };
       const CHART_FILE = { pps: 'fga-pps', efg: 'efg-ts', mix: 'anatomia-ataque' };
+      const CHART_KIND_LABEL = { pps: 'FGA / PPS', efg: 'eFG% / TS%', mix: 'Anatomía' };
+      let lastChartGameId = null;
+      const gameChartNotesText = document.getElementById('game-chart-notes-text');
+      const gameChartNotesEditor = document.getElementById('game-chart-notes-editor');
+      const gameChartNotesMeta = document.getElementById('game-chart-notes-meta');
+      const saveGameChartBtn = document.getElementById('save-game-chart-notes');
       const PTS_FT_GRAY = '#8d8d8d';
 
       function getTeamColor(team) {
@@ -508,9 +526,12 @@
           if (gamesData.length) {
             const g = gamesData.find((x) => x.id === (window.__salaSelectedGameId || gamesData[0].id)) || gamesData[0];
             rightHeading.textContent = g.title || 'Gráficos del partido';
+            lastChartGameId = g.id;
           } else {
             rightHeading.textContent = 'Gráficos del partido';
+            lastChartGameId = null;
           }
+          void loadGameChartNotes();
         }
         if (id === 'charts' && ppsChart) {
           requestAnimationFrame(() => ppsChart.resize());
@@ -526,6 +547,43 @@
         });
       }
 
+      async function loadGameChartNotes() {
+        if (!gameChartNotesText || !gameChartNotesEditor) return;
+        const kind = currentChartKind;
+        if (!lastChartGameId) {
+          gameChartNotesText.textContent = 'Selecciona un partido en la lista para ver o escribir anotaciones.';
+          gameChartNotesEditor.value = '';
+          if (gameChartNotesMeta) gameChartNotesMeta.textContent = '';
+          return;
+        }
+        if (gameChartNotesMeta) {
+          const scope = CHART_KIND_LABEL[kind] || kind;
+          gameChartNotesMeta.textContent = `${scope} — cargando…`;
+        }
+        gameChartNotesText.textContent = 'Cargando anotación…';
+        const resp = await fetch(
+          `/api/private/games/${encodeURIComponent(lastChartGameId)}/chart-notes/${encodeURIComponent(kind)}`
+        );
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+          gameChartNotesText.textContent = data.error || 'No se pudieron cargar las anotaciones.';
+          gameChartNotesEditor.value = '';
+          if (gameChartNotesMeta) gameChartNotesMeta.textContent = '';
+          return;
+        }
+        const text = (data.text || '').trim();
+        gameChartNotesText.textContent = text || 'Sin anotación para este partido y gráfico.';
+        gameChartNotesEditor.value = data.text || '';
+        if (gameChartNotesMeta) {
+          const scope = CHART_KIND_LABEL[kind] || kind;
+          gameChartNotesMeta.textContent = data.updatedAt
+            ? `${scope} · Actualizado: ${new Date(data.updatedAt).toLocaleString('es-ES')}${
+                data.updatedBy ? ` · ${data.updatedBy}` : ''
+              }`
+            : scope;
+        }
+      }
+
       function setChartKind(kind) {
         currentChartKind = kind;
         if (chartHintEl) chartHintEl.textContent = CHART_HINTS[kind] || CHART_HINTS.pps;
@@ -534,6 +592,7 @@
           ppsChart.setOption(buildChartOption(lastStatsPayload), true);
         }
         requestAnimationFrame(() => ppsChart && ppsChart.resize());
+        void loadGameChartNotes();
       }
       chartTypeTabs.forEach((b) => {
         b.addEventListener('click', () => {
@@ -559,6 +618,8 @@
         if (!gamesData.length) {
           gameListEl.innerHTML = '<div class="empty">No hay XML en la carpeta de Drive. Añade .xml a la carpeta y recarga la página.</div>';
           chartEmpty.style.display = 'block';
+          lastChartGameId = null;
+          void loadGameChartNotes();
           return;
         }
         chartEmpty.style.display = 'none';
@@ -592,6 +653,8 @@
         if (!resp.ok) {
           gameListEl.innerHTML = `<div class="empty">Error al cargar partidos</div>`;
           gamesData = [];
+          lastChartGameId = null;
+          void loadGameChartNotes();
           return;
         }
         gamesData = data.games || [];
@@ -956,6 +1019,7 @@
       async function loadChart(gameId, titleFromSelect) {
         if (!gameId) return;
         if (typeof echarts === 'undefined') return;
+        lastChartGameId = gameId;
         btnPng.disabled = true;
         if (btnFullscreen) btnFullscreen.disabled = true;
         const resp = await fetch(`/api/private/games/${encodeURIComponent(gameId)}/stats`);
@@ -974,6 +1038,7 @@
           chartEmpty.textContent = data.error || 'No se pudieron cargar las estadisticas.';
           chartEmpty.style.display = 'block';
           if (btnFullscreen) btnFullscreen.disabled = true;
+          void loadGameChartNotes();
           return;
         }
         chartEmpty.style.display = 'none';
@@ -993,7 +1058,43 @@
         if (currentMain === 'charts') {
           rightHeading.textContent = data.title || titleFromSelect || 'Gráficos del partido';
         }
+        void loadGameChartNotes();
         requestAnimationFrame(() => ppsChart && ppsChart.resize());
+      }
+
+      if (saveGameChartBtn) {
+        saveGameChartBtn.addEventListener('click', async () => {
+          if (window.__salaRole !== 'admin' || !lastChartGameId) return;
+          const text = (gameChartNotesEditor && gameChartNotesEditor.value) ? gameChartNotesEditor.value.trim() : '';
+          const kind = currentChartKind;
+          saveGameChartBtn.disabled = true;
+          saveGameChartBtn.textContent = 'Guardando…';
+          const resp = await fetch(
+            `/api/private/games/${encodeURIComponent(lastChartGameId)}/chart-notes/${encodeURIComponent(kind)}`,
+            { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) }
+          );
+          const data = await resp.json().catch(() => ({}));
+          saveGameChartBtn.disabled = false;
+          saveGameChartBtn.textContent = 'Guardar anotación';
+          if (!resp.ok) {
+            const extra = data.detail ? ` (${data.detail})` : '';
+            if (gameChartNotesMeta) {
+              gameChartNotesMeta.textContent = (data.error || 'No se pudo guardar.') + extra;
+            }
+            return;
+          }
+          if (gameChartNotesText) {
+            gameChartNotesText.textContent = text || 'Sin anotación para este partido y gráfico.';
+          }
+          if (gameChartNotesMeta) {
+            const scope = CHART_KIND_LABEL[kind] || kind;
+            gameChartNotesMeta.textContent = data.updatedAt
+              ? `${scope} · Actualizado: ${new Date(data.updatedAt).toLocaleString('es-ES')}${
+                  data.updatedBy ? ` · ${data.updatedBy}` : ''
+                }`
+              : scope;
+          }
+        });
       }
 
       function scheduleChartResize() {
@@ -1076,10 +1177,18 @@
         return false;
       }
       currentRole = data.role;
+      window.__salaRole = data.role;
+      const gameChartEditor = document.getElementById('game-chart-notes-editor');
+      const gameChartActions = document.getElementById('game-chart-notes-actions');
       if (data.role === 'admin') {
         adminLink.style.display = 'inline-block';
         notesEditor.style.display = 'block';
         notesActions.style.display = 'flex';
+        if (gameChartEditor) gameChartEditor.style.display = 'block';
+        if (gameChartActions) gameChartActions.style.display = 'flex';
+      } else {
+        if (gameChartEditor) gameChartEditor.style.display = 'none';
+        if (gameChartActions) gameChartActions.style.display = 'none';
       }
       return true;
     }

@@ -489,6 +489,8 @@ const PRIVATE_VIEWER_FOLDER = process.env.PRIVATE_VIEWER_DRIVE_FOLDER_ID || DEFA
 const PRIVATE_NOTES_FOLDER = process.env.VIDEO_NOTES_DRIVE_FOLDER_ID || PRIVATE_VIEWER_FOLDER;
 const NOTES_FILE_NAME = process.env.VIDEO_NOTES_FILE_NAME || 'video_notes.json';
 let notesFileIdCache = process.env.VIDEO_NOTES_DRIVE_FILE_ID || null;
+const GAME_CHART_NOTES_FILE_NAME = process.env.GAME_CHART_NOTES_FILE_NAME || 'game_chart_notes.json';
+let gameChartNotesFileIdCache = process.env.GAME_CHART_NOTES_DRIVE_FILE_ID || null;
 /** Partidos (XML) subidos por la sala: viven en Drive, no en el repo. Compartir la carpeta con la service account. */
 const DEFAULT_SALA_GAMES_DRIVE_FOLDER = '1F8D_CYXtVqfnTm6bBBEZsuWBh2Ggrqb1';
 const SALA_GAMES_DRIVE_FOLDER = (process.env.SALA_GAMES_DRIVE_FOLDER_ID || DEFAULT_SALA_GAMES_DRIVE_FOLDER).trim();
@@ -599,6 +601,73 @@ async function saveVideoNotes(drive, notesMap) {
     supportsAllDrives: true
   });
 }
+
+async function getDriveGameChartNotesFileId(drive, options = {}) {
+  const { createIfMissing = false } = options;
+  if (gameChartNotesFileIdCache) return gameChartNotesFileIdCache;
+  const { data } = await drive.files.list({
+    q: `'${PRIVATE_NOTES_FOLDER}' in parents and name = '${GAME_CHART_NOTES_FILE_NAME}' and trashed = false`,
+    fields: 'files(id,name,modifiedTime)',
+    orderBy: 'modifiedTime desc',
+    pageSize: 1,
+    supportsAllDrives: true,
+    includeItemsFromAllDrives: true
+  });
+  const found = data.files?.[0];
+  if (found?.id) {
+    gameChartNotesFileIdCache = found.id;
+    return gameChartNotesFileIdCache;
+  }
+  if (!createIfMissing) return null;
+  const created = await drive.files.create({
+    requestBody: {
+      name: GAME_CHART_NOTES_FILE_NAME,
+      parents: [PRIVATE_NOTES_FOLDER],
+      mimeType: 'application/json'
+    },
+    media: {
+      mimeType: 'application/json',
+      body: Readable.from(['{}'])
+    },
+    fields: 'id',
+    supportsAllDrives: true
+  });
+  gameChartNotesFileIdCache = created.data.id;
+  return gameChartNotesFileIdCache;
+}
+
+async function loadGameChartNotesMap(drive) {
+  const fileId = await getDriveGameChartNotesFileId(drive, { createIfMissing: false });
+  if (!fileId) return {};
+  try {
+    const fileRes = await drive.files.get(
+      { fileId, alt: 'media', supportsAllDrives: true },
+      { responseType: 'stream' }
+    );
+    const raw = await streamToString(fileRes.data);
+    const parsed = JSON.parse(raw || '{}');
+    if (parsed && typeof parsed === 'object') return parsed;
+    return {};
+  } catch (err) {
+    console.error('Error leyendo anotaciones de gráficos:', err.message);
+    return {};
+  }
+}
+
+async function saveGameChartNotesMap(drive, notesMap) {
+  const fileId = await getDriveGameChartNotesFileId(drive, { createIfMissing: true });
+  const payload = JSON.stringify(notesMap, null, 2);
+  await drive.files.update({
+    fileId,
+    media: {
+      mimeType: 'application/json',
+      body: Readable.from([payload])
+    },
+    supportsAllDrives: true
+  });
+}
+
+const CHART_NOTE_KINDS = new Set(['pps', 'efg', 'mix']);
 
 app.get('/api/config', requireAdmin, requirePublishEnabled, async (req, res) => {
   await ensureServiceAccountCreds();
@@ -841,6 +910,72 @@ app.put('/api/private/videos/:id/notes', requireAdmin, async (req, res) => {
       });
     }
     res.status(500).json({ error: 'No se pudo guardar el análisis del video', detail: driveErrorDetail(err) });
+  }
+});
+
+// Sala: anotaciones por partido y tipo de gráfico (misma carpeta de notas en Drive; archivo game_chart_notes.json)
+app.get('/api/private/games/:id/chart-notes/:kind', requireAuth, async (req, res) => {
+  if (!CHART_NOTE_KINDS.has(req.params.kind)) {
+    return res.status(400).json({ error: 'Tipo de gráfico no válido' });
+  }
+  await ensureServiceAccountCreds();
+  const auth = getDriveServiceAccountClient();
+  if (!auth) return res.status(503).json({ error: 'Service Account no configurado para notas' });
+  try {
+    const drive = google.drive({ version: 'v3', auth });
+    const map = await loadGameChartNotesMap(drive);
+    const g = map[req.params.id];
+    const note = g && g[req.params.kind] && typeof g[req.params.kind] === 'object' ? g[req.params.kind] : {};
+    res.json({
+      text: typeof note.text === 'string' ? note.text : '',
+      updatedAt: note.updatedAt || null,
+      updatedBy: note.updatedBy || null
+    });
+  } catch (err) {
+    console.error('Error leyendo anotaciones de gráfico:', err);
+    const status = driveHttpStatus(err);
+    if (status === 403) {
+      return res.status(403).json({ error: 'Sin permisos sobre el archivo de anotaciones', detail: driveErrorDetail(err) });
+    }
+    res.status(500).json({ error: 'No se pudieron cargar las anotaciones', detail: driveErrorDetail(err) });
+  }
+});
+
+app.put('/api/private/games/:id/chart-notes/:kind', requireAdmin, async (req, res) => {
+  if (!CHART_NOTE_KINDS.has(req.params.kind)) {
+    return res.status(400).json({ error: 'Tipo de gráfico no válido' });
+  }
+  const text = typeof req.body?.text === 'string' ? req.body.text.trim() : '';
+  if (text.length > 5000) {
+    return res.status(400).json({ error: 'La anotación no puede superar 5000 caracteres' });
+  }
+  await ensureServiceAccountCreds();
+  const auth = getDriveServiceAccountClient();
+  if (!auth) return res.status(503).json({ error: 'Service Account no configurado para notas' });
+  try {
+    const drive = google.drive({ version: 'v3', auth });
+    const map = await loadGameChartNotesMap(drive);
+    if (!map[req.params.id] || typeof map[req.params.id] !== 'object') {
+      map[req.params.id] = {};
+    }
+    map[req.params.id][req.params.kind] = {
+      text,
+      updatedAt: new Date().toISOString(),
+      updatedBy: req.session?.userEmail || 'admin'
+    };
+    await saveGameChartNotesMap(drive, map);
+    res.json(map[req.params.id][req.params.kind]);
+  } catch (err) {
+    console.error('Error guardando anotaciones de gráfico:', err);
+    const status = driveHttpStatus(err);
+    if (status === 403) {
+      return res.status(403).json({
+        error:
+          'La cuenta de servicio no puede editar game_chart_notes.json. Asegura permiso Editor en la carpeta (o la variable GAME_CHART_NOTES_DRIVE_FILE_ID / carpeta con VIDEO_NOTES_DRIVE_FOLDER_ID).',
+        detail: driveErrorDetail(err)
+      });
+    }
+    res.status(500).json({ error: 'No se pudo guardar la anotación', detail: driveErrorDetail(err) });
   }
 });
 
