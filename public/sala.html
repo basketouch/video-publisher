@@ -318,8 +318,9 @@
       height: 50vh;
       max-height: 620px;
       border-radius: 10px;
-      border: 1px solid rgba(253, 185, 39, 0.22);
-      background: rgba(5, 3, 12, 0.35);
+      border: 1px solid rgba(0, 0, 0, 0.1);
+      background: #ffffff;
+      box-shadow: 0 2px 16px rgba(0, 0, 0, 0.08);
     }
     .tab-pane[hidden] { display: none !important; }
     @media (max-width: 980px) {
@@ -410,12 +411,13 @@
       const LAKERS_GOLD = '#fdb927';
       const LAKERS_PURPLE = '#552583';
       const ROCKETS = '#C8102E';
-      const CHART_CANVAS_BG = 'transparent';
-      const GRID_BG = '#ffffff';
-      const CHART_PNG_OUTER = '#0e0a18';
+      const CHART_CANVAS_BG = '#ffffff';
+      const GRID_BG = 'transparent';
+      const CHART_PNG_OUTER = '#ffffff';
       const IN_GRID_TEXT = '#1a1a1a';
-      const AXIS_NAME = 'rgba(225, 210, 255, 0.9)';
-      const AXIS_LABEL = 'rgba(245, 242, 255, 0.88)';
+      const AXIS_NAME = '#4a4a4a';
+      const AXIS_LABEL = '#5c5c5c';
+      const CHART_SUBTEXT = '#6b6b6b';
       const mainTabs = document.querySelectorAll('.main-tab');
       const chartEmbed = document.getElementById('chart-embed');
       const btnFullscreen = document.getElementById('btn-fullscreen');
@@ -560,8 +562,8 @@
       const legendDef = {
         right: 12,
         top: 40,
-        textStyle: { color: 'rgba(253, 185, 39, 0.95)' },
-        inactiveColor: 'rgba(200, 200, 200, 0.4)'
+        textStyle: { color: LAKERS_PURPLE },
+        inactiveColor: 'rgba(150, 150, 150, 0.7)'
       };
 
       function buildOptionPps(payload) {
@@ -612,15 +614,15 @@
             left: 'center',
             top: 10,
             textStyle: { fontSize: 15, color: LAKERS_GOLD, fontWeight: 600 },
-            subtextStyle: { color: 'rgba(205, 199, 232, 0.9)', fontSize: 12 }
+            subtextStyle: { color: CHART_SUBTEXT, fontSize: 12 }
           },
           grid: { ...gridDef },
           tooltip: {
             trigger: 'item',
-            backgroundColor: 'rgba(22, 14, 42, 0.94)',
-            borderColor: 'rgba(253, 185, 39, 0.45)',
+            backgroundColor: 'rgba(255, 255, 255, 0.98)',
+            borderColor: 'rgba(85, 37, 131, 0.28)',
             borderWidth: 1,
-            textStyle: { color: '#f5f2ff' },
+            textStyle: { color: IN_GRID_TEXT },
             formatter: (p) => {
               const d = p.data || [];
               return `${d[2] || ''}<br/>FGA: ${d[0]}<br/>PPS: ${d[1]}`;
@@ -692,15 +694,15 @@
             left: 'center',
             top: 10,
             textStyle: { fontSize: 15, color: LAKERS_GOLD, fontWeight: 600 },
-            subtextStyle: { color: 'rgba(205, 199, 232, 0.9)', fontSize: 12 }
+            subtextStyle: { color: CHART_SUBTEXT, fontSize: 12 }
           },
           grid: { ...gridDef },
           tooltip: {
             trigger: 'item',
-            backgroundColor: 'rgba(22, 14, 42, 0.94)',
-            borderColor: 'rgba(253, 185, 39, 0.45)',
+            backgroundColor: 'rgba(255, 255, 255, 0.98)',
+            borderColor: 'rgba(85, 37, 131, 0.28)',
             borderWidth: 1,
-            textStyle: { color: '#f5f2ff' },
+            textStyle: { color: IN_GRID_TEXT },
             formatter: (p) => {
               const d = p.data || [];
               return `${d[2] || ''}<br/>eFG%: ${(d[0] != null) ? d[0].toFixed(1) : '—'}<br/>TS%: ${(d[1] != null) ? d[1].toFixed(1) : '—'}`;
@@ -733,7 +735,7 @@
           series,
           graphic: !series.length ? [{
             type: 'text', left: 'center', top: '52%', style: {
-              text: 'No hay datos (se necesita al menos 1 FGA y TS% calculable con TL)', fill: 'rgba(205, 199, 232, 0.85)', fontSize: 12
+              text: 'No hay datos (se necesita al menos 1 FGA y TS% calculable con TL)', fill: CHART_SUBTEXT, fontSize: 12
             }
           }] : []
         };
@@ -751,16 +753,32 @@
               left: 'center',
               top: 10,
               textStyle: { fontSize: 15, color: LAKERS_GOLD, fontWeight: 600 },
-              subtextStyle: { color: 'rgba(205, 199, 232, 0.9)', fontSize: 12 }
+              subtextStyle: { color: CHART_SUBTEXT, fontSize: 12 }
             },
             grid: { ...gridDef },
-            xAxis: { show: true, name: 'TOV %', min: 0, max: 100 },
-            yAxis: { show: true, name: 'AS %', min: 0, max: 100 },
+            xAxis: {
+              show: true,
+              name: 'TOV %',
+              min: 0,
+              max: 100,
+              nameTextStyle: { color: AXIS_NAME },
+              axisLabel: { color: AXIS_LABEL },
+              splitLine: { show: true, lineStyle: { type: 'dotted', color: 'rgba(0, 0, 0, 0.08)' } }
+            },
+            yAxis: {
+              show: true,
+              name: 'AS %',
+              min: 0,
+              max: 100,
+              nameTextStyle: { color: AXIS_NAME },
+              axisLabel: { color: AXIS_LABEL },
+              splitLine: { show: true, lineStyle: { type: 'dotted', color: 'rgba(0, 0, 0, 0.08)' } }
+            },
             legend: { show: false },
             series: [],
             graphic: [{
               type: 'text', left: 'center', top: '52%',
-              style: { text: 'No hay asistencias ni pérdidas etiquetadas en el XML', fill: 'rgba(205, 199, 232, 0.9)', fontSize: 12 }
+              style: { text: 'No hay asistencias ni pérdidas etiquetadas en el XML', fill: CHART_SUBTEXT, fontSize: 12 }
             }]
           };
         }
@@ -802,15 +820,15 @@
             left: 'center',
             top: 10,
             textStyle: { fontSize: 15, color: LAKERS_GOLD, fontWeight: 600 },
-            subtextStyle: { color: 'rgba(205, 199, 232, 0.85)', fontSize: 12 }
+            subtextStyle: { color: CHART_SUBTEXT, fontSize: 12 }
           },
           grid: { ...gridDef },
           tooltip: {
             trigger: 'item',
-            backgroundColor: 'rgba(22, 14, 42, 0.94)',
-            borderColor: 'rgba(253, 185, 39, 0.45)',
+            backgroundColor: 'rgba(255, 255, 255, 0.98)',
+            borderColor: 'rgba(85, 37, 131, 0.28)',
             borderWidth: 1,
-            textStyle: { color: '#f5f2ff' },
+            textStyle: { color: IN_GRID_TEXT },
             formatter: (p) => {
               const d = p.data || [];
               return `${d[2] || ''}<br/>TOV%: ${(d[0] != null) ? d[0].toFixed(1) : '—'}<br/>AS%: ${(d[1] != null) ? d[1].toFixed(1) : '—'}`;
@@ -842,7 +860,7 @@
           series,
           graphic: !series.length ? [{
             type: 'text', left: 'center', top: '52%',
-            style: { text: 'Sin jugadores con denominador de participación', fill: 'rgba(205, 199, 232, 0.85)', fontSize: 12 }
+            style: { text: 'Sin jugadores con denominador de participación', fill: CHART_SUBTEXT, fontSize: 12 }
           }] : []
         };
       }
