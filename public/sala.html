@@ -269,8 +269,16 @@
       flex-wrap: wrap;
       align-items: center;
       justify-content: space-between;
-      gap: 10px 14px;
+      gap: 10px 12px;
       margin-bottom: 10px;
+    }
+    .chart-team-inline {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex: 1 1 auto;
+      justify-content: center;
+      min-width: 0;
     }
     .chart-type-tabs { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
     .chart-type-tab {
@@ -312,18 +320,10 @@
       overflow: hidden; clip: rect(0,0,0,0); border: 0; white-space: nowrap;
     }
     .chart-hint { font-size: 12px; color: var(--text-secondary); margin: 0 0 8px; line-height: 1.4; }
-    .chart-team-row {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 8px 12px;
-      width: 100%;
-      margin: 0 0 8px 0;
-    }
-    .chart-team-row label { font-size: 12px; color: var(--text-secondary); font-weight: 600; }
+    .chart-team-inline label { font-size: 12px; color: var(--text-secondary); font-weight: 600; white-space: nowrap; }
     .chart-team-select {
-      min-width: 200px;
-      max-width: 100%;
+      min-width: 160px;
+      max-width: min(100%, 280px);
       border-radius: 8px;
       padding: 6px 10px;
       font-size: 12px;
@@ -350,6 +350,13 @@
       .layout { grid-template-columns: 1fr; }
       .brand-title { font-size: 22px; }
       .toolbar { align-items: flex-start; flex-direction: column; }
+    }
+    @media (max-width: 720px) {
+      .chart-team-inline {
+        flex-basis: 100%;
+        order: 3;
+        justify-content: flex-start;
+      }
     }
   </style>
 </head>
@@ -413,18 +420,18 @@
                 <button type="button" class="chart-type-tab" data-chart="efg" role="tab" aria-selected="false">eFG% / TS%</button>
                 <button type="button" class="chart-type-tab" data-chart="mix" role="tab" aria-selected="false" title="Aciertos en 2P, 3P y tiro libre; en el detalle, anotados frente a intentos">Anatomía</button>
               </div>
+              <div class="chart-team-inline">
+                <label for="chart-team-filter">Equipo</label>
+                <select id="chart-team-filter" class="chart-team-select" aria-label="Filtrar estadísticas por equipo" title="Muestra solo jugadores de un equipo">
+                  <option value="">Todos los equipos</option>
+                </select>
+              </div>
               <div class="chart-embed-tools">
                 <button type="button" class="chart-tool" id="btn-fullscreen" disabled title="Pantalla completa" aria-label="Pantalla completa">
                   <span aria-hidden="true" style="font-size:1rem;opacity:0.85">⛶</span><span class="sr-only">Pantalla completa</span>
                 </button>
                 <button type="button" class="chart-tool" id="btn-png" disabled title="Descargar PNG" aria-label="Descargar PNG">PNG</button>
               </div>
-            </div>
-            <div class="chart-team-row">
-              <label for="chart-team-filter">Equipo</label>
-              <select id="chart-team-filter" class="chart-team-select" aria-label="Filtrar estadísticas por equipo" title="Muestra solo jugadores de un equipo">
-                <option value="">Todos los equipos</option>
-              </select>
             </div>
             <div id="chart-pps" class="chart-box" aria-label="Gráfico de estadísticas"></div>
           </div>
