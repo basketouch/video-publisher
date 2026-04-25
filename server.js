@@ -489,8 +489,11 @@ const PRIVATE_VIEWER_FOLDER = process.env.PRIVATE_VIEWER_DRIVE_FOLDER_ID || DEFA
 const PRIVATE_NOTES_FOLDER = process.env.VIDEO_NOTES_DRIVE_FOLDER_ID || PRIVATE_VIEWER_FOLDER;
 const NOTES_FILE_NAME = process.env.VIDEO_NOTES_FILE_NAME || 'video_notes.json';
 let notesFileIdCache = process.env.VIDEO_NOTES_DRIVE_FILE_ID || null;
-const GAME_CHART_NOTES_FILE_NAME = process.env.GAME_CHART_NOTES_FILE_NAME || 'game_chart_notes.json';
-let gameChartNotesFileIdCache = process.env.GAME_CHART_NOTES_DRIVE_FILE_ID || null;
+/**
+ * Misma unidad de persistencia que las notas de video (video_notes.json en Drive).
+ * Un archivo aparte peta en muchas SAs: sin cuota en "Mi unidad" (hay que shared drive, etc.).
+ */
+const SALA_GAME_CHART_NOTES_KEY = '__salaGameChartNotes';
 /** Partidos (XML) subidos por la sala: viven en Drive, no en el repo. Compartir la carpeta con la service account. */
 const DEFAULT_SALA_GAMES_DRIVE_FOLDER = '1F8D_CYXtVqfnTm6bBBEZsuWBh2Ggrqb1';
 const SALA_GAMES_DRIVE_FOLDER = (process.env.SALA_GAMES_DRIVE_FOLDER_ID || DEFAULT_SALA_GAMES_DRIVE_FOLDER).trim();
@@ -591,71 +594,6 @@ async function loadVideoNotes(drive) {
 
 async function saveVideoNotes(drive, notesMap) {
   const fileId = await getDriveNotesFileId(drive, { createIfMissing: true });
-  const payload = JSON.stringify(notesMap, null, 2);
-  await drive.files.update({
-    fileId,
-    media: {
-      mimeType: 'application/json',
-      body: Readable.from([payload])
-    },
-    supportsAllDrives: true
-  });
-}
-
-async function getDriveGameChartNotesFileId(drive, options = {}) {
-  const { createIfMissing = false } = options;
-  if (gameChartNotesFileIdCache) return gameChartNotesFileIdCache;
-  const { data } = await drive.files.list({
-    q: `'${PRIVATE_NOTES_FOLDER}' in parents and name = '${GAME_CHART_NOTES_FILE_NAME}' and trashed = false`,
-    fields: 'files(id,name,modifiedTime)',
-    orderBy: 'modifiedTime desc',
-    pageSize: 1,
-    supportsAllDrives: true,
-    includeItemsFromAllDrives: true
-  });
-  const found = data.files?.[0];
-  if (found?.id) {
-    gameChartNotesFileIdCache = found.id;
-    return gameChartNotesFileIdCache;
-  }
-  if (!createIfMissing) return null;
-  const created = await drive.files.create({
-    requestBody: {
-      name: GAME_CHART_NOTES_FILE_NAME,
-      parents: [PRIVATE_NOTES_FOLDER],
-      mimeType: 'application/json'
-    },
-    media: {
-      mimeType: 'application/json',
-      body: Readable.from(['{}'])
-    },
-    fields: 'id',
-    supportsAllDrives: true
-  });
-  gameChartNotesFileIdCache = created.data.id;
-  return gameChartNotesFileIdCache;
-}
-
-async function loadGameChartNotesMap(drive) {
-  const fileId = await getDriveGameChartNotesFileId(drive, { createIfMissing: false });
-  if (!fileId) return {};
-  try {
-    const fileRes = await drive.files.get(
-      { fileId, alt: 'media', supportsAllDrives: true },
-      { responseType: 'stream' }
-    );
-    const raw = await streamToString(fileRes.data);
-    const parsed = JSON.parse(raw || '{}');
-    if (parsed && typeof parsed === 'object') return parsed;
-    return {};
-  } catch (err) {
-    console.error('Error leyendo anotaciones de gráficos:', err.message);
-    return {};
-  }
-}
-
-async function saveGameChartNotesMap(drive, notesMap) {
-  const fileId = await getDriveGameChartNotesFileId(drive, { createIfMissing: true });
   const payload = JSON.stringify(notesMap, null, 2);
   await drive.files.update({
     fileId,
@@ -913,7 +851,7 @@ app.put('/api/private/videos/:id/notes', requireAdmin, async (req, res) => {
   }
 });
 
-// Sala: anotaciones por partido y tipo de gráfico (misma carpeta de notas en Drive; archivo game_chart_notes.json)
+// Sala: anotaciones por partido y tipo de gráfico (dentro de video_notes.json, clave __salaGameChartNotes: evita 2.º archivo en Drive)
 app.get('/api/private/games/:id/chart-notes/:kind', requireAuth, async (req, res) => {
   if (!CHART_NOTE_KINDS.has(req.params.kind)) {
     return res.status(400).json({ error: 'Tipo de gráfico no válido' });
@@ -923,8 +861,9 @@ app.get('/api/private/games/:id/chart-notes/:kind', requireAuth, async (req, res
   if (!auth) return res.status(503).json({ error: 'Service Account no configurado para notas' });
   try {
     const drive = google.drive({ version: 'v3', auth });
-    const map = await loadGameChartNotesMap(drive);
-    const g = map[req.params.id];
+    const notes = await loadVideoNotes(drive);
+    const bucket = notes[SALA_GAME_CHART_NOTES_KEY];
+    const g = bucket && typeof bucket === 'object' && !Array.isArray(bucket) ? bucket[req.params.id] : null;
     const note = g && g[req.params.kind] && typeof g[req.params.kind] === 'object' ? g[req.params.kind] : {};
     res.json({
       text: typeof note.text === 'string' ? note.text : '',
@@ -954,24 +893,28 @@ app.put('/api/private/games/:id/chart-notes/:kind', requireAdmin, async (req, re
   if (!auth) return res.status(503).json({ error: 'Service Account no configurado para notas' });
   try {
     const drive = google.drive({ version: 'v3', auth });
-    const map = await loadGameChartNotesMap(drive);
-    if (!map[req.params.id] || typeof map[req.params.id] !== 'object') {
-      map[req.params.id] = {};
+    const notes = await loadVideoNotes(drive);
+    if (!notes[SALA_GAME_CHART_NOTES_KEY] || typeof notes[SALA_GAME_CHART_NOTES_KEY] !== 'object' || Array.isArray(notes[SALA_GAME_CHART_NOTES_KEY])) {
+      notes[SALA_GAME_CHART_NOTES_KEY] = {};
     }
-    map[req.params.id][req.params.kind] = {
+    const bucket = notes[SALA_GAME_CHART_NOTES_KEY];
+    if (!bucket[req.params.id] || typeof bucket[req.params.id] !== 'object' || Array.isArray(bucket[req.params.id])) {
+      bucket[req.params.id] = {};
+    }
+    bucket[req.params.id][req.params.kind] = {
       text,
       updatedAt: new Date().toISOString(),
       updatedBy: req.session?.userEmail || 'admin'
     };
-    await saveGameChartNotesMap(drive, map);
-    res.json(map[req.params.id][req.params.kind]);
+    await saveVideoNotes(drive, notes);
+    res.json(bucket[req.params.id][req.params.kind]);
   } catch (err) {
     console.error('Error guardando anotaciones de gráfico:', err);
     const status = driveHttpStatus(err);
     if (status === 403) {
       return res.status(403).json({
         error:
-          'La cuenta de servicio no puede editar game_chart_notes.json. Asegura permiso Editor en la carpeta (o la variable GAME_CHART_NOTES_DRIVE_FILE_ID / carpeta con VIDEO_NOTES_DRIVE_FOLDER_ID).',
+          'La cuenta de servicio no puede editar video_notes.json. Dale rol Editor a la carpeta (o crea VIDEO_NOTES_DRIVE_FOLDER_ID en una unidad compartida donde la SA tenga acceso, ver documentación de Drive + service accounts).',
         detail: driveErrorDetail(err)
       });
     }
