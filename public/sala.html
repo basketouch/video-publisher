@@ -312,6 +312,29 @@
       overflow: hidden; clip: rect(0,0,0,0); border: 0; white-space: nowrap;
     }
     .chart-hint { font-size: 12px; color: var(--text-secondary); margin: 0 0 8px; line-height: 1.4; }
+    .chart-team-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px 12px;
+      width: 100%;
+      margin: 0 0 8px 0;
+    }
+    .chart-team-row label { font-size: 12px; color: var(--text-secondary); font-weight: 600; }
+    .chart-team-select {
+      min-width: 200px;
+      max-width: 100%;
+      border-radius: 8px;
+      padding: 6px 10px;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-primary);
+      background: rgba(8, 6, 16, 0.7);
+      border: 1px solid rgba(253, 185, 39, 0.28);
+      cursor: pointer;
+    }
+    .chart-team-select:hover { border-color: rgba(253, 185, 39, 0.45); }
+    .chart-team-select:focus { outline: none; border-color: var(--lakers-gold); }
     .chart-box {
       width: 100%;
       min-height: 400px;
@@ -397,6 +420,12 @@
                 <button type="button" class="chart-tool" id="btn-png" disabled title="Descargar PNG" aria-label="Descargar PNG">PNG</button>
               </div>
             </div>
+            <div class="chart-team-row">
+              <label for="chart-team-filter">Equipo</label>
+              <select id="chart-team-filter" class="chart-team-select" aria-label="Filtrar estadísticas por equipo" title="Muestra solo jugadores de un equipo">
+                <option value="">Todos los equipos</option>
+              </select>
+            </div>
             <div id="chart-pps" class="chart-box" aria-label="Gráfico de estadísticas"></div>
           </div>
           <p id="chart-empty" class="empty" style="display:none; margin-top:12px">No hay partidos. Coloca archivos .xml en la carpeta de Drive (compartida con la service account) y vuelve a abrir o recarga la lista.</p>
@@ -438,6 +467,8 @@
       let currentMain = 'video';
       let currentChartKind = 'pps';
       let lastStatsPayload = null;
+      let chartTeamFilter = '';
+      const teamFilterEl = document.getElementById('chart-team-filter');
       const CHART_HINTS = {
         pps: 'Eficiencia: volumen (FGA) frente a PPS. PPS = puntos de canasta de campo (sin tiros libres) entre intentos (FGA).',
         efg: 'Eficiencia ajustada: eFG% incluye el valor del triple. TS% incluye el impacto de los tiros libres. Escala 0–100 %.',
@@ -503,6 +534,19 @@
           setChartKind(b.dataset.chart);
         });
       });
+      if (teamFilterEl) {
+        teamFilterEl.addEventListener('change', () => {
+          chartTeamFilter = teamFilterEl.value || '';
+          if (lastStatsPayload && ppsChart) {
+            ppsChart.setOption(buildChartOption(lastStatsPayload), true);
+            const v = buildPayloadForView(lastStatsPayload);
+            const n = (v.players || []).length;
+            btnPng.disabled = n === 0;
+            if (btnFullscreen) btnFullscreen.disabled = n === 0;
+          }
+          requestAnimationFrame(() => ppsChart && ppsChart.resize());
+        });
+      }
 
       function renderGameList(selectId) {
         if (!gamesData.length) {
@@ -563,6 +607,42 @@
         textStyle: { color: LAKERS_PURPLE },
         inactiveColor: 'rgba(150, 150, 150, 0.7)'
       };
+
+      function buildPayloadForView(raw) {
+        const all = raw.players || [];
+        const players = chartTeamFilter
+          ? all.filter((p) => p.team === chartTeamFilter)
+          : all;
+        const ppsList = players.map((p) => p.pps).filter((v) => v != null);
+        const meanPps = ppsList.length
+          ? Math.round((ppsList.reduce((s, v) => s + v, 0) / ppsList.length) * 1000) / 1000
+          : null;
+        return { ...raw, players, meanPps };
+      }
+
+      function populateTeamSelect(players) {
+        if (!teamFilterEl) return;
+        const teams = [...new Set((players || []).map((p) => p.team).filter(Boolean))].sort((a, b) =>
+          a.localeCompare(b, 'es', { sensitivity: 'base' })
+        );
+        if (chartTeamFilter && !teams.includes(chartTeamFilter)) {
+          chartTeamFilter = '';
+        }
+        while (teamFilterEl.firstChild) {
+          teamFilterEl.removeChild(teamFilterEl.firstChild);
+        }
+        const o0 = document.createElement('option');
+        o0.value = '';
+        o0.textContent = 'Todos los equipos';
+        teamFilterEl.appendChild(o0);
+        teams.forEach((t) => {
+          const o = document.createElement('option');
+          o.value = t;
+          o.textContent = t;
+          teamFilterEl.appendChild(o);
+        });
+        teamFilterEl.value = chartTeamFilter;
+      }
 
       function buildOptionPps(payload) {
         const { players, meanPps } = payload;
@@ -867,9 +947,10 @@
       }
 
       function buildChartOption(payload) {
-        if (currentChartKind === 'efg') return buildOptionEfg(payload);
-        if (currentChartKind === 'mix') return buildOptionMix(payload);
-        return buildOptionPps(payload);
+        const v = buildPayloadForView(payload);
+        if (currentChartKind === 'efg') return buildOptionEfg(v);
+        if (currentChartKind === 'mix') return buildOptionMix(v);
+        return buildOptionPps(v);
       }
 
       async function loadChart(gameId, titleFromSelect) {
@@ -881,6 +962,14 @@
         const data = await resp.json().catch(() => ({}));
         if (!resp.ok) {
           lastStatsPayload = null;
+          if (teamFilterEl) {
+            while (teamFilterEl.firstChild) teamFilterEl.removeChild(teamFilterEl.firstChild);
+            const o0 = document.createElement('option');
+            o0.value = '';
+            o0.textContent = 'Todos los equipos';
+            teamFilterEl.appendChild(o0);
+            chartTeamFilter = '';
+          }
           if (ppsChart) ppsChart.clear();
           chartEmpty.textContent = data.error || 'No se pudieron cargar las estadisticas.';
           chartEmpty.style.display = 'block';
@@ -890,6 +979,7 @@
         chartEmpty.style.display = 'none';
         if (!ppsChart) ppsChart = echarts.init(chartEl, null, { renderer: 'canvas' });
         lastStatsPayload = data;
+        populateTeamSelect(data.players);
         if (chartHintEl) chartHintEl.textContent = CHART_HINTS[currentChartKind];
         setChartKindTabs(currentChartKind);
         lastChartTitle = (data.title || titleFromSelect || 'partido')
@@ -897,9 +987,9 @@
           .replace(/\s+/g, '-')
           .slice(0, 80) || 'grafico';
         ppsChart.setOption(buildChartOption(data), true);
-        const hasPlayers = (data.players || []).length > 0;
-        btnPng.disabled = !hasPlayers;
-        if (btnFullscreen) btnFullscreen.disabled = !hasPlayers;
+        const nPlayers = (buildPayloadForView(data).players || []).length;
+        btnPng.disabled = nPlayers === 0;
+        if (btnFullscreen) btnFullscreen.disabled = nPlayers === 0;
         if (currentMain === 'charts') {
           rightHeading.textContent = data.title || titleFromSelect || 'Gráficos del partido';
         }
