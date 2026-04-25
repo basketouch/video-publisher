@@ -264,19 +264,53 @@
       height: auto !important;
       max-height: none !important;
     }
-    .chart-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 10px; }
-    .btn-fullscreen, .btn-png {
-      border-radius: 10px;
-      padding: 8px 14px;
-      cursor: pointer;
-      font-weight: 600;
-      font-size: 13px;
-      border: 1px solid rgba(253, 185, 39, 0.45);
-      background: linear-gradient(180deg, rgba(85, 37, 131, 0.55), rgba(40, 18, 64, 0.75));
-      color: var(--text-primary);
+    .chart-embed-top {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px 14px;
+      margin-bottom: 10px;
     }
-    .btn-fullscreen:hover, .btn-png:hover { border-color: var(--lakers-gold); color: #fff; }
-    .btn-png:disabled, .btn-fullscreen:disabled { opacity: 0.5; cursor: not-allowed; }
+    .chart-type-tabs { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+    .chart-type-tab {
+      border: 1px solid rgba(253, 185, 39, 0.22);
+      background: rgba(8, 6, 16, 0.55);
+      color: var(--text-secondary);
+      font-size: 12px;
+      font-weight: 600;
+      padding: 6px 10px;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+    }
+    .chart-type-tab:hover { color: var(--text-primary); border-color: rgba(253, 185, 39, 0.35); }
+    .chart-type-tab.active {
+      color: var(--lakers-gold);
+      border-color: rgba(253, 185, 39, 0.45);
+      background: rgba(85, 37, 131, 0.35);
+    }
+    .chart-type-tab:disabled { opacity: 0.4; cursor: not-allowed; }
+    .chart-embed-tools { display: flex; align-items: center; gap: 4px; }
+    .chart-tool {
+      border: none;
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--text-secondary);
+      border-radius: 7px;
+      padding: 5px 8px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      line-height: 1;
+      transition: color 0.15s, background 0.15s;
+    }
+    .chart-tool:hover { color: var(--lakers-gold); background: rgba(255, 255, 255, 0.08); }
+    .chart-tool:disabled { opacity: 0.4; cursor: not-allowed; }
+    .chart-tool .sr-only {
+      position: absolute;
+      width: 1px; height: 1px; padding: 0; margin: -1px;
+      overflow: hidden; clip: rect(0,0,0,0); border: 0; white-space: nowrap;
+    }
     .chart-hint { font-size: 12px; color: var(--text-secondary); margin: 0 0 8px; line-height: 1.4; }
     .chart-box {
       width: 100%;
@@ -347,13 +381,22 @@
           </div>
         </div>
         <div id="right-stack-charts" class="right-stack" hidden>
-          <p class="chart-hint">Eficiencia: volumen (FGA) frente a PPS. PPS = puntos de canasta de campo (sin tiros libres) entre intentos (FGA).</p>
+          <p id="chart-hint" class="chart-hint">Eficiencia: volumen (FGA) frente a PPS. PPS = puntos de canasta de campo (sin tiros libres) entre intentos (FGA).</p>
           <div class="chart-embed" id="chart-embed">
-            <div class="chart-toolbar">
-              <button type="button" class="btn-fullscreen" id="btn-fullscreen" disabled title="Pantalla completa">Pantalla completa</button>
-              <button type="button" class="btn-png" id="btn-png" disabled>Descargar PNG</button>
+            <div class="chart-embed-top">
+              <div class="chart-type-tabs" role="tablist" aria-label="Tipo de gráfico">
+                <button type="button" class="chart-type-tab active" data-chart="pps" role="tab" aria-selected="true">FGA / PPS</button>
+                <button type="button" class="chart-type-tab" data-chart="efg" role="tab" aria-selected="false">eFG% / TS%</button>
+                <button type="button" class="chart-type-tab" data-chart="play" role="tab" aria-selected="false" title="Requiere acciones de asistencia o pérdida en el XML">AS% / TOV%</button>
+              </div>
+              <div class="chart-embed-tools">
+                <button type="button" class="chart-tool" id="btn-fullscreen" disabled title="Pantalla completa" aria-label="Pantalla completa">
+                  <span aria-hidden="true" style="font-size:1rem;opacity:0.85">⛶</span><span class="sr-only">Pantalla completa</span>
+                </button>
+                <button type="button" class="chart-tool" id="btn-png" disabled title="Descargar PNG" aria-label="Descargar PNG">PNG</button>
+              </div>
             </div>
-            <div id="chart-pps" class="chart-box" aria-label="Grafico Volumen vs PPS"></div>
+            <div id="chart-pps" class="chart-box" aria-label="Gráfico de estadísticas"></div>
           </div>
           <p id="chart-empty" class="empty" style="display:none; margin-top:12px">No hay partidos. Coloca archivos .xml en la carpeta de Drive (compartida con la service account) y vuelve a abrir o recarga la lista.</p>
         </div>
@@ -376,6 +419,8 @@
       const mainTabs = document.querySelectorAll('.main-tab');
       const chartEmbed = document.getElementById('chart-embed');
       const btnFullscreen = document.getElementById('btn-fullscreen');
+      const chartTypeTabs = document.querySelectorAll('.chart-type-tab');
+      const chartHintEl = document.getElementById('chart-hint');
       const leftPaneVideo = document.getElementById('left-pane-video');
       const leftPaneCharts = document.getElementById('left-pane-charts');
       const rightStackVideo = document.getElementById('right-stack-video');
@@ -389,6 +434,14 @@
       let lastChartTitle = 'grafico-partido';
       let gamesData = [];
       let currentMain = 'video';
+      let currentChartKind = 'pps';
+      let lastStatsPayload = null;
+      const CHART_HINTS = {
+        pps: 'Eficiencia: volumen (FGA) frente a PPS. PPS = puntos de canasta de campo (sin tiros libres) entre intentos (FGA).',
+        efg: 'Eficiencia ajustada: eFG% incluye el valor del triple. TS% incluye el impacto de los tiros libres. Escala 0–100 %.',
+        play: 'Participación de cada jugador: AS% y TOV% sobre un denominador aprox. (FGA + 0,44·FTA + AS + TOV). Requiere esas acciones en el XML.'
+      };
+      const CHART_FILE = { pps: 'fga-pps', efg: 'efg-ts', play: 'as-tov' };
 
       function getTeamColor(team) {
         if (/Lakers/i.test(team)) return LAKERS_GOLD;
@@ -418,9 +471,38 @@
             rightHeading.textContent = 'Gráficos del partido';
           }
         }
-        if (id === 'charts' && ppsChart) requestAnimationFrame(() => ppsChart.resize());
+        if (id === 'charts' && ppsChart) {
+          requestAnimationFrame(() => ppsChart.resize());
+        }
       }
       mainTabs.forEach((b) => b.addEventListener('click', () => setMainTab(b.dataset.main)));
+
+      function setChartKindTabs(kind) {
+        chartTypeTabs.forEach((b) => {
+          const on = b.dataset.chart === kind;
+          b.classList.toggle('active', on);
+          b.setAttribute('aria-selected', on ? 'true' : 'false');
+        });
+      }
+
+      function setChartKind(kind) {
+        if (kind === 'play' && lastStatsPayload && !lastStatsPayload.hasPlaymaking) {
+          return;
+        }
+        currentChartKind = kind;
+        if (chartHintEl) chartHintEl.textContent = CHART_HINTS[kind] || CHART_HINTS.pps;
+        setChartKindTabs(kind);
+        if (lastStatsPayload && ppsChart) {
+          ppsChart.setOption(buildChartOption(lastStatsPayload), true);
+        }
+        requestAnimationFrame(() => ppsChart && ppsChart.resize());
+      }
+      chartTypeTabs.forEach((b) => {
+        b.addEventListener('click', () => {
+          if (b.disabled) return;
+          setChartKind(b.dataset.chart);
+        });
+      });
 
       function renderGameList(selectId) {
         if (!gamesData.length) {
@@ -465,12 +547,30 @@
         renderGameList(preselectId);
       }
 
-      function buildOption(payload) {
+      const gridTop = 78;
+      const gridDef = {
+        left: 58,
+        right: 100,
+        top: gridTop,
+        bottom: 50,
+        show: true,
+        backgroundColor: GRID_BG,
+        borderWidth: 0
+      };
+      const legendDef = {
+        right: 12,
+        top: 40,
+        textStyle: { color: 'rgba(253, 185, 39, 0.95)' },
+        inactiveColor: 'rgba(200, 200, 200, 0.4)'
+      };
+
+      function buildOptionPps(payload) {
         const { players, meanPps, title } = payload;
         const byTeam = new Map();
         (players || []).forEach((p) => {
+          if (p.fga < 1 || p.pps == null) return;
           if (!byTeam.has(p.team)) byTeam.set(p.team, []);
-          byTeam.get(p.team).push([p.fga, p.pps, p.label, getTeamColor(p.team)]);
+          byTeam.get(p.team).push([p.fga, p.pps, p.label]);
         });
         const series = [];
         for (const [team, pts] of byTeam) {
@@ -503,27 +603,18 @@
             data: [{ yAxis: meanPps }]
           };
         }
-        const gridTop = 78;
         return {
           backgroundColor: CHART_CANVAS_BG,
           textStyle: { color: AXIS_LABEL },
           title: {
-            text: 'Jerarquia de eficiencia: Volumen (FGA) vs. PPS',
+            text: 'Jerarquía: volumen (FGA) vs PPS',
             subtext: title || '',
             left: 'center',
             top: 10,
             textStyle: { fontSize: 15, color: LAKERS_GOLD, fontWeight: 600 },
             subtextStyle: { color: 'rgba(205, 199, 232, 0.9)', fontSize: 12 }
           },
-          grid: {
-            left: 58,
-            right: 100,
-            top: gridTop,
-            bottom: 50,
-            show: true,
-            backgroundColor: GRID_BG,
-            borderWidth: 0
-          },
+          grid: { ...gridDef },
           tooltip: {
             trigger: 'item',
             backgroundColor: 'rgba(22, 14, 42, 0.94)',
@@ -536,7 +627,7 @@
             }
           },
           xAxis: {
-            name: 'Volumen (tiros de campo intentados)',
+            name: 'FGA (tiros de campo intentados)',
             nameLocation: 'middle',
             nameGap: 32,
             min: 0,
@@ -546,7 +637,7 @@
             splitLine: { show: true, lineStyle: { type: 'dotted', color: 'rgba(0, 0, 0, 0.1)' } }
           },
           yAxis: {
-            name: 'Eficiencia (puntos de campo / FGA)',
+            name: 'PPS (puntos de campo / FGA)',
             nameLocation: 'middle',
             nameGap: 40,
             min: 0,
@@ -556,14 +647,210 @@
             axisLabel: { color: AXIS_LABEL },
             splitLine: { show: true, lineStyle: { type: 'dotted', color: 'rgba(0, 0, 0, 0.1)' } }
           },
-          legend: {
-            right: 12,
-            top: 40,
-            textStyle: { color: 'rgba(253, 185, 39, 0.95)' },
-            inactiveColor: 'rgba(200, 200, 200, 0.4)'
-          },
+          legend: { ...legendDef },
           series
         };
+      }
+
+      function buildOptionEfg(payload) {
+        const { players, title } = payload;
+        const byTeam = new Map();
+        (players || []).forEach((p) => {
+          if (p.efgPct == null || p.tsPct == null) return;
+          if (!byTeam.has(p.team)) byTeam.set(p.team, []);
+          byTeam.get(p.team).push([p.efgPct * 100, p.tsPct * 100, p.label]);
+        });
+        const series = [];
+        for (const [team, pts] of byTeam) {
+          const isLakers = /Lakers/i.test(team);
+          const col = getTeamColor(team);
+          series.push({
+            name: team,
+            type: 'scatter',
+            data: pts,
+            itemStyle: isLakers
+              ? { color: col, borderWidth: 0 }
+              : { color: col, borderColor: 'rgba(0,0,0,0.4)', borderWidth: 1 },
+            symbolSize: 16,
+            label: {
+              show: true,
+              position: 'right',
+              color: IN_GRID_TEXT,
+              fontSize: 10,
+              textBorderColor: 'rgba(255,255,255,0.95)',
+              textBorderWidth: 1,
+              formatter: (param) => (param.data && param.data[2]) ? String(param.data[2]) : ''
+            }
+          });
+        }
+        return {
+          backgroundColor: CHART_CANVAS_BG,
+          textStyle: { color: AXIS_LABEL },
+          title: {
+            text: 'eFG% vs True Shooting %',
+            subtext: title || '',
+            left: 'center',
+            top: 10,
+            textStyle: { fontSize: 15, color: LAKERS_GOLD, fontWeight: 600 },
+            subtextStyle: { color: 'rgba(205, 199, 232, 0.9)', fontSize: 12 }
+          },
+          grid: { ...gridDef },
+          tooltip: {
+            trigger: 'item',
+            backgroundColor: 'rgba(22, 14, 42, 0.94)',
+            borderColor: 'rgba(253, 185, 39, 0.45)',
+            borderWidth: 1,
+            textStyle: { color: '#f5f2ff' },
+            formatter: (p) => {
+              const d = p.data || [];
+              return `${d[2] || ''}<br/>eFG%: ${(d[0] != null) ? d[0].toFixed(1) : '—'}<br/>TS%: ${(d[1] != null) ? d[1].toFixed(1) : '—'}`;
+            }
+          },
+          xAxis: {
+            name: 'eFG %',
+            nameLocation: 'middle',
+            nameGap: 32,
+            min: 0,
+            max: 100,
+            nameTextStyle: { color: AXIS_NAME, fontSize: 11 },
+            axisLine: { lineStyle: { color: 'rgba(0, 0, 0, 0.22)' } },
+            axisLabel: { color: AXIS_LABEL, formatter: (v) => `${v}` },
+            splitLine: { show: true, lineStyle: { type: 'dotted', color: 'rgba(0, 0, 0, 0.1)' } }
+          },
+          yAxis: {
+            name: 'TS %',
+            nameLocation: 'middle',
+            nameGap: 40,
+            min: 0,
+            max: 100,
+            scale: false,
+            nameTextStyle: { color: AXIS_NAME, fontSize: 11 },
+            axisLine: { lineStyle: { color: 'rgba(0, 0, 0, 0.22)' } },
+            axisLabel: { color: AXIS_LABEL },
+            splitLine: { show: true, lineStyle: { type: 'dotted', color: 'rgba(0, 0, 0, 0.1)' } }
+          },
+          legend: { ...legendDef, show: series.length > 0 },
+          series,
+          graphic: !series.length ? [{
+            type: 'text', left: 'center', top: '52%', style: {
+              text: 'No hay datos (se necesita al menos 1 FGA y TS% calculable con TL)', fill: 'rgba(205, 199, 232, 0.85)', fontSize: 12
+            }
+          }] : []
+        };
+      }
+
+      function buildOptionPlay(payload) {
+        const { players, hasPlaymaking, title } = payload;
+        if (!hasPlaymaking) {
+          return {
+            backgroundColor: CHART_CANVAS_BG,
+            textStyle: { color: AXIS_LABEL },
+            title: {
+              text: 'AS% vs TOV% (participación)',
+              subtext: title || '',
+              left: 'center',
+              top: 10,
+              textStyle: { fontSize: 15, color: LAKERS_GOLD, fontWeight: 600 },
+              subtextStyle: { color: 'rgba(205, 199, 232, 0.9)', fontSize: 12 }
+            },
+            grid: { ...gridDef },
+            xAxis: { show: true, name: 'TOV %', min: 0, max: 100 },
+            yAxis: { show: true, name: 'AS %', min: 0, max: 100 },
+            legend: { show: false },
+            series: [],
+            graphic: [{
+              type: 'text', left: 'center', top: '52%',
+              style: { text: 'No hay asistencias ni pérdidas etiquetadas en el XML', fill: 'rgba(205, 199, 232, 0.9)', fontSize: 12 }
+            }]
+          };
+        }
+        const byTeam = new Map();
+        (players || []).forEach((p) => {
+          if (p.astPct == null || p.tovPct == null) return;
+          if (!byTeam.has(p.team)) byTeam.set(p.team, []);
+          byTeam.get(p.team).push([p.tovPct, p.astPct, p.label]);
+        });
+        const series = [];
+        for (const [team, pts] of byTeam) {
+          const isLakers = /Lakers/i.test(team);
+          const col = getTeamColor(team);
+          series.push({
+            name: team,
+            type: 'scatter',
+            data: pts,
+            itemStyle: isLakers
+              ? { color: col, borderWidth: 0 }
+              : { color: col, borderColor: 'rgba(0,0,0,0.4)', borderWidth: 1 },
+            symbolSize: 16,
+            label: {
+              show: true,
+              position: 'right',
+              color: IN_GRID_TEXT,
+              fontSize: 10,
+              textBorderColor: 'rgba(255,255,255,0.95)',
+              textBorderWidth: 1,
+              formatter: (param) => (param.data && param.data[2]) ? String(param.data[2]) : ''
+            }
+          });
+        }
+        return {
+          backgroundColor: CHART_CANVAS_BG,
+          textStyle: { color: AXIS_LABEL },
+          title: {
+            text: 'AS% vs TOV% (participación aproximada)',
+            subtext: title || '',
+            left: 'center',
+            top: 10,
+            textStyle: { fontSize: 15, color: LAKERS_GOLD, fontWeight: 600 },
+            subtextStyle: { color: 'rgba(205, 199, 232, 0.85)', fontSize: 12 }
+          },
+          grid: { ...gridDef },
+          tooltip: {
+            trigger: 'item',
+            backgroundColor: 'rgba(22, 14, 42, 0.94)',
+            borderColor: 'rgba(253, 185, 39, 0.45)',
+            borderWidth: 1,
+            textStyle: { color: '#f5f2ff' },
+            formatter: (p) => {
+              const d = p.data || [];
+              return `${d[2] || ''}<br/>TOV%: ${(d[0] != null) ? d[0].toFixed(1) : '—'}<br/>AS%: ${(d[1] != null) ? d[1].toFixed(1) : '—'}`;
+            }
+          },
+          xAxis: {
+            name: 'TOV % (sobre FGA+0,44·FTA+AS+TOV)',
+            nameLocation: 'middle',
+            nameGap: 32,
+            min: 0,
+            max: 100,
+            nameTextStyle: { color: AXIS_NAME, fontSize: 10 },
+            axisLine: { lineStyle: { color: 'rgba(0, 0, 0, 0.22)' } },
+            axisLabel: { color: AXIS_LABEL },
+            splitLine: { show: true, lineStyle: { type: 'dotted', color: 'rgba(0, 0, 0, 0.1)' } }
+          },
+          yAxis: {
+            name: 'AS %',
+            nameLocation: 'middle',
+            nameGap: 40,
+            min: 0,
+            max: 100,
+            nameTextStyle: { color: AXIS_NAME, fontSize: 11 },
+            axisLine: { lineStyle: { color: 'rgba(0, 0, 0, 0.22)' } },
+            axisLabel: { color: AXIS_LABEL },
+            splitLine: { show: true, lineStyle: { type: 'dotted', color: 'rgba(0, 0, 0, 0.1)' } }
+          },
+          legend: { ...legendDef, show: series.length > 0 },
+          series,
+          graphic: !series.length ? [{
+            type: 'text', left: 'center', top: '52%',
+            style: { text: 'Sin jugadores con denominador de participación', fill: 'rgba(205, 199, 232, 0.85)', fontSize: 12 }
+          }] : []
+        };
+      }
+
+      function buildChartOption(payload) {
+        if (currentChartKind === 'efg') return buildOptionEfg(payload);
+        if (currentChartKind === 'play') return buildOptionPlay(payload);
+        return buildOptionPps(payload);
       }
 
       async function loadChart(gameId, titleFromSelect) {
@@ -574,6 +861,7 @@
         const resp = await fetch(`/api/private/games/${encodeURIComponent(gameId)}/stats`);
         const data = await resp.json().catch(() => ({}));
         if (!resp.ok) {
+          lastStatsPayload = null;
           if (ppsChart) ppsChart.clear();
           chartEmpty.textContent = data.error || 'No se pudieron cargar las estadisticas.';
           chartEmpty.style.display = 'block';
@@ -582,11 +870,21 @@
         }
         chartEmpty.style.display = 'none';
         if (!ppsChart) ppsChart = echarts.init(chartEl, null, { renderer: 'canvas' });
+        lastStatsPayload = data;
+        const playTab = document.querySelector('.chart-type-tab[data-chart="play"]');
+        if (playTab) {
+          playTab.disabled = !data.hasPlaymaking;
+        }
+        if (currentChartKind === 'play' && !data.hasPlaymaking) {
+          currentChartKind = 'pps';
+        }
+        if (chartHintEl) chartHintEl.textContent = CHART_HINTS[currentChartKind];
+        setChartKindTabs(currentChartKind);
         lastChartTitle = (data.title || titleFromSelect || 'partido')
           .replace(/[^\w\-\s\u00C0-\u024F.]/g, '_')
           .replace(/\s+/g, '-')
           .slice(0, 80) || 'grafico';
-        ppsChart.setOption(buildOption(data), true);
+        ppsChart.setOption(buildChartOption(data), true);
         const hasPlayers = (data.players || []).length > 0;
         btnPng.disabled = !hasPlayers;
         if (btnFullscreen) btnFullscreen.disabled = !hasPlayers;
@@ -607,7 +905,8 @@
       }
       function onFsOrResize() {
         if (btnFullscreen) {
-          btnFullscreen.textContent = isChartFullscreen() ? 'Salir' : 'Pantalla completa';
+          const fs = isChartFullscreen();
+          btnFullscreen.setAttribute('title', fs ? 'Salir de pantalla completa' : 'Pantalla completa');
         }
         scheduleChartResize();
       }
@@ -637,7 +936,8 @@
         const u = ppsChart.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: CHART_PNG_OUTER });
         const a = document.createElement('a');
         a.href = u;
-        a.download = `pps-${lastChartTitle}.png`;
+        const suf = CHART_FILE[currentChartKind] || 'chart';
+        a.download = `${suf}-${lastChartTitle}.png`;
         a.click();
       });
 

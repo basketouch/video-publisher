@@ -867,12 +867,13 @@ app.get('/api/private/games/:id/stats', requireAuth, async (req, res) => {
     return res.status(404).json({ error: 'Partido no encontrado' });
   }
   try {
-    const { players, meanPps } = aggregateFromXmlString(bundle.xml);
+    const { players, meanPps, hasPlaymaking } = aggregateFromXmlString(bundle.xml);
     res.json({
       id: req.params.id,
       title: bundle.title,
       players,
-      meanPps
+      meanPps,
+      hasPlaymaking: !!hasPlaymaking
     });
   } catch (e) {
     console.error('Error agregando stats del partido:', e);
