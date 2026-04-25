@@ -12,10 +12,16 @@ const cookieSession = require('cookie-session');
 const { google } = require('googleapis');
 const { createClient } = require('@supabase/supabase-js');
 const { aggregateFromXmlString } = require('./lib/statsFromScoutingXml');
+const { listGames, getGameXmlAndTitle, saveGame } = require('./lib/salaGamesStore');
+const multer = require('multer');
 
 const GAMES_DATA_DIR = process.env.GAME_DATA_DIR
   ? path.resolve(process.env.GAME_DATA_DIR)
   : path.join(__dirname, 'data', 'games');
+const gamesUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 6 * 1024 * 1024 }
+});
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'info@basketouch.com';
 const ADMIN_USERNAME = (process.env.ADMIN_USERNAME || ADMIN_EMAIL || '').trim().toLowerCase();
@@ -488,6 +494,22 @@ const PRIVATE_VIEWER_FOLDER = process.env.PRIVATE_VIEWER_DRIVE_FOLDER_ID || DEFA
 const PRIVATE_NOTES_FOLDER = process.env.VIDEO_NOTES_DRIVE_FOLDER_ID || PRIVATE_VIEWER_FOLDER;
 const NOTES_FILE_NAME = process.env.VIDEO_NOTES_FILE_NAME || 'video_notes.json';
 let notesFileIdCache = process.env.VIDEO_NOTES_DRIVE_FILE_ID || null;
+/** Partidos (XML) subidos por la sala: viven en Drive, no en el repo. Compartir la carpeta con la service account. */
+const DEFAULT_SALA_GAMES_DRIVE_FOLDER = '1F8D_CYXtVqfnTm6bBBEZsuWBh2Ggrqb1';
+const SALA_GAMES_DRIVE_FOLDER = (process.env.SALA_GAMES_DRIVE_FOLDER_ID || DEFAULT_SALA_GAMES_DRIVE_FOLDER).trim();
+
+function getSalaGamesStoreContext() {
+  return {
+    getDrive: async () => {
+      await ensureServiceAccountCreds();
+      const auth = getDriveServiceAccountClient();
+      if (!auth) return null;
+      return google.drive({ version: 'v3', auth });
+    },
+    driveFolderId: SALA_GAMES_DRIVE_FOLDER,
+    requireDriveInProd: Boolean(process.env.VERCEL)
+  };
+}
 
 function driveHttpStatus(err) {
   const s = err?.response?.status;
@@ -828,69 +850,73 @@ app.put('/api/private/videos/:id/notes', requireAdmin, async (req, res) => {
   }
 });
 
-// XML de partidos: solo bajo /data/games (no en public/); requiere login de sala
+// XML de partidos: Google Drive (carpeta) +/o data/games solo en entorno local
 app.get('/api/private/games', requireAuth, async (req, res) => {
-  const manifestPath = path.join(GAMES_DATA_DIR, 'manifest.json');
   try {
-    const raw = await fsp.readFile(manifestPath, 'utf8');
-    const { games: list } = JSON.parse(raw);
-    const games = [];
-    for (const g of list || []) {
-      if (!g.id || !g.file) continue;
-      if (String(g.file).includes('..') || path.isAbsolute(g.file)) continue;
-      const fp = path.join(GAMES_DATA_DIR, path.basename(g.file));
-      try {
-        await fsp.access(fp, fs.constants.R_OK);
-        games.push({ id: g.id, title: g.title || g.id });
-      } catch {
-        // omitir si no existe el XML en el servidor
-      }
-    }
-    res.json({ games });
+    const list = await listGames(GAMES_DATA_DIR, getSalaGamesStoreContext());
+    res.json({ games: list.map((g) => ({ id: g.id, title: g.title })) });
   } catch (err) {
-    if (err.code === 'ENOENT') {
-      return res.json({ games: [] });
-    }
-    console.error('Error leyendo manifest de partidos:', err);
+    console.error('Error listando partidos:', err);
     res.status(500).json({ error: 'No se pudo leer el listado de partidos' });
   }
 });
 
-app.get('/api/private/games/:id/stats', requireAuth, async (req, res) => {
-  const manifestPath = path.join(GAMES_DATA_DIR, 'manifest.json');
-  let list;
-  try {
-    const raw = await fsp.readFile(manifestPath, 'utf8');
-    list = JSON.parse(raw).games || [];
-  } catch (err) {
-    if (err.code === 'ENOENT') {
-      return res.status(404).json({ error: 'No hay partidos configurados (falta data/games/manifest.json)' });
+app.post(
+  '/api/private/games/upload',
+  requireAuth,
+  requireAdmin,
+  (req, res, next) => {
+    gamesUpload.single('file')(req, res, (err) => {
+      if (err instanceof multer.MulterError) {
+        if (err.code === 'LIMIT_FILE_SIZE') {
+          return res.status(400).json({ error: 'El XML supera el tamaño máximo (6 MB)' });
+        }
+        return res.status(400).json({ error: err.message });
+      }
+      if (err) return next(err);
+      next();
+    });
+  },
+  async (req, res) => {
+    const file = req.file;
+    if (!file || !file.buffer) {
+      return res.status(400).json({ error: 'Falta el archivo XML' });
     }
-    console.error(err);
-    return res.status(500).json({ error: 'Error leyendo el catálogo de partidos' });
+    const name = (file.originalname || 'partido.xml').toLowerCase();
+    if (!name.endsWith('.xml') && file.mimetype !== 'text/xml' && file.mimetype !== 'application/xml') {
+      return res.status(400).json({ error: 'Solo se admiten archivos .xml' });
+    }
+    const title = (req.body && (req.body.title || req.body.name)) || '';
+    const xml = file.buffer.toString('utf8');
+    try {
+      const r = await saveGame({ title, xml, gamesDir: GAMES_DATA_DIR, ctx: getSalaGamesStoreContext() });
+      if (r.error) {
+        return res.status(400).json({ error: r.error });
+      }
+      return res.json({ id: r.id, title: r.title, source: r.source });
+    } catch (e) {
+      console.error('Error guardando partido XML:', e);
+      res.status(500).json({ error: 'No se pudo guardar el partido' });
+    }
   }
-  const entry = list.find((g) => g.id === req.params.id);
-  if (!entry) {
+);
+
+app.get('/api/private/games/:id/stats', requireAuth, async (req, res) => {
+  let bundle;
+  try {
+    bundle = await getGameXmlAndTitle(req.params.id, GAMES_DATA_DIR, getSalaGamesStoreContext());
+  } catch (e) {
+    console.error(e);
+    return res.status(500).json({ error: 'Error leyendo el partido' });
+  }
+  if (!bundle) {
     return res.status(404).json({ error: 'Partido no encontrado' });
   }
-  if (!entry.file || String(entry.file).includes('..') || path.isAbsolute(entry.file)) {
-    return res.status(400).json({ error: 'Entrada de partido inválida' });
-  }
-  const fp = path.join(GAMES_DATA_DIR, path.basename(entry.file));
-  let xml;
   try {
-    xml = await fsp.readFile(fp, 'utf8');
-  } catch (err) {
-    if (err.code === 'ENOENT') {
-      return res.status(404).json({ error: 'Falta el archivo XML en el servidor' });
-    }
-    throw err;
-  }
-  try {
-    const { players, meanPps } = aggregateFromXmlString(xml);
+    const { players, meanPps } = aggregateFromXmlString(bundle.xml);
     res.json({
-      id: entry.id,
-      title: entry.title || entry.id,
+      id: req.params.id,
+      title: bundle.title,
       players,
       meanPps
     });

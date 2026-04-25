@@ -200,38 +200,50 @@
       transform: none;
     }
     .empty { color: var(--text-secondary); padding: 18px; }
-    .sala-subtabs {
+    .main-tabs {
       display: flex;
-      gap: 8px;
-      margin-bottom: 16px;
-      flex-wrap: wrap;
+      gap: 0;
+      border-bottom: 1px solid rgba(253, 185, 39, 0.16);
+      background: rgba(14, 10, 23, 0.7);
     }
-    .sala-subtab {
-      border-radius: 10px;
-      padding: 8px 14px;
+    .main-tab {
+      flex: 1;
+      border: none;
+      border-bottom: 3px solid transparent;
+      padding: 12px 14px;
       cursor: pointer;
-      font-weight: 600;
-      font-size: 13px;
-      border: 1px solid rgba(253, 185, 39, 0.28);
-      background: rgba(14, 10, 23, 0.65);
+      font-weight: 700;
+      font-size: 14px;
+      background: transparent;
       color: var(--text-secondary);
     }
-    .sala-subtab:hover { background: rgba(85, 37, 131, 0.35); color: var(--text-primary); }
-    .sala-subtab.active {
-      border-color: var(--lakers-gold);
-      color: #231038;
-      background: linear-gradient(180deg, #f7bf3f, #fdb927);
+    .main-tab:hover { color: var(--text-primary); background: rgba(85, 37, 131, 0.2); }
+    .main-tab.active {
+      color: var(--lakers-gold);
+      border-bottom-color: var(--lakers-gold);
+      background: rgba(85, 37, 131, 0.25);
     }
-    .chart-toolbar {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 12px;
-      margin-bottom: 12px;
+    .left-stack { min-height: 0; }
+    .pane-label {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      color: var(--lakers-gold);
+      font-weight: 700;
+      padding: 8px 16px 0;
+      margin: 0;
     }
-    .chart-toolbar label { font-size: 13px; color: var(--text-secondary); display: flex; align-items: center; gap: 8px; }
-    .chart-toolbar select {
-      min-width: 220px;
+    .upload-card {
+      margin: 10px 12px 12px;
+      padding: 12px;
+      border-radius: 10px;
+      border: 1px solid rgba(253, 185, 39, 0.22);
+      background: rgba(6, 4, 12, 0.45);
+    }
+    .upload-label { margin: 0 0 8px; font-size: 12px; color: var(--text-secondary); }
+    .upload-card input[type="text"] {
+      width: 100%;
+      margin-bottom: 8px;
       border-radius: 8px;
       border: 1px solid rgba(253, 185, 39, 0.28);
       background: rgba(6, 4, 12, 0.65);
@@ -239,6 +251,11 @@
       padding: 8px 10px;
       font-size: 13px;
     }
+    .upload-card input[type="file"] { font-size: 12px; color: var(--text-secondary); margin-bottom: 8px; }
+    .upload-status { display: block; font-size: 12px; color: var(--text-secondary); margin-top: 8px; min-height: 1.2em; }
+    .upload-status.error { color: #ff8a8a; }
+    .upload-status.ok { color: #9dffa3; }
+    .chart-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 12px; }
     .btn-png {
       border-radius: 10px;
       padding: 8px 14px;
@@ -281,48 +298,57 @@
     </div>
 
     <div class="layout">
-      <section class="panel">
-        <h2>Videos</h2>
-        <div id="video-list" class="list">
-          <div class="empty">Cargando videos...</div>
+      <section class="panel" aria-label="Navegacion">
+        <div class="main-tabs" role="tablist">
+          <button type="button" class="main-tab active" data-main="video" role="tab" aria-selected="true">Video</button>
+          <button type="button" class="main-tab" data-main="charts" role="tab" aria-selected="false">Gráficos</button>
+        </div>
+        <div id="left-pane-video" class="left-stack">
+          <div id="video-list" class="list">
+            <div class="empty">Cargando videos...</div>
+          </div>
+        </div>
+        <div id="left-pane-charts" class="left-stack" hidden>
+          <div id="upload-card" class="upload-card" style="display:none" aria-label="Subir partido en XML">
+            <p class="upload-label">Subir XML de partido</p>
+            <input type="text" id="upload-title" maxlength="200" placeholder="Título (opcional)" />
+            <input type="file" id="upload-file" accept=".xml,application/xml,text/xml" />
+            <button type="button" class="btn btn-save" id="btn-upload-xml" style="width:100%; margin-top:4px">Subir</button>
+            <span id="upload-status" class="upload-status" role="status"></span>
+          </div>
+          <p class="pane-label">Partidos</p>
+          <div id="game-list" class="list">
+            <div class="empty">Cargando partidos…</div>
+          </div>
         </div>
       </section>
 
-      <section class="panel">
-        <h2 id="current-title">Selecciona un video</h2>
-        <div class="sala-subtabs" role="tablist">
-          <button type="button" class="sala-subtab active" data-subtab="video" role="tab" aria-selected="true">Video y analisis</button>
-          <button type="button" class="sala-subtab" data-subtab="charts" role="tab" aria-selected="false">Graficos del partido</button>
-        </div>
-        <div id="pane-video" class="tab-pane" role="tabpanel">
-        <div class="player-wrap">
-          <span class="status-pill">Analisis privado</span>
-          <video id="player" controls playsinline preload="metadata"></video>
-          <div class="notes-box">
-            <div class="notes-header">
-              <span class="notes-title">Analisis del video</span>
-              <span id="notes-meta" class="notes-meta"></span>
-            </div>
-            <div id="notes-text" class="notes-text">Selecciona un video para ver el analisis.</div>
-            <textarea id="notes-editor" class="notes-editor" maxlength="5000" placeholder="Escribe aqui el analisis del video..."></textarea>
-            <div id="notes-actions" class="notes-actions">
-              <button id="save-notes" class="btn btn-save" type="button">Guardar analisis</button>
+      <section class="panel" aria-label="Contenido">
+        <h2 id="right-heading">Selecciona un video</h2>
+        <div id="right-stack-video" class="right-stack">
+          <div class="player-wrap">
+            <span class="status-pill">Analisis privado</span>
+            <video id="player" controls playsinline preload="metadata"></video>
+            <div class="notes-box">
+              <div class="notes-header">
+                <span class="notes-title">Analisis del video</span>
+                <span id="notes-meta" class="notes-meta"></span>
+              </div>
+              <div id="notes-text" class="notes-text">Selecciona un video para ver el analisis.</div>
+              <textarea id="notes-editor" class="notes-editor" maxlength="5000" placeholder="Escribe aqui el analisis del video..."></textarea>
+              <div id="notes-actions" class="notes-actions">
+                <button id="save-notes" class="btn btn-save" type="button">Guardar analisis</button>
+              </div>
             </div>
           </div>
         </div>
-        </div>
-        <div id="pane-charts" class="tab-pane" role="tabpanel" hidden>
-          <p class="chart-hint">Eficiencia: volumen (FGA) frente a puntos por tiro (PPS). PPS = puntos de canasta de campo (sin tiros libres) entre intentos de campo. Datos leidos del XML; no se guarda la imagen en el servidor: usa &quot;Descargar PNG&quot; si quieres una copia local.</p>
+        <div id="right-stack-charts" class="right-stack" hidden>
+          <p class="chart-hint">Eficiencia: volumen (FGA) frente a PPS. PPS = puntos de canasta de campo (sin tiros libres) entre intentos (FGA). El PNG se genera en tu navegador; no se guarda en el servidor.</p>
           <div class="chart-toolbar">
-            <label>Partido
-              <select id="game-select" aria-label="Elegir partido">
-                <option value="">Cargando...</option>
-              </select>
-            </label>
             <button type="button" class="btn-png" id="btn-png" disabled>Descargar PNG</button>
           </div>
           <div id="chart-pps" class="chart-box" aria-label="Grafico Volumen vs PPS"></div>
-          <p id="chart-empty" class="empty" style="display:none; margin-top:12px">No hay partidos con XML en el servidor. Añade archivos bajo <code>data/games</code> y <code>manifest.json</code>.</p>
+          <p id="chart-empty" class="empty" style="display:none; margin-top:12px">No hay partidos. El admin sube un XML; en producción la carpeta de Drive (SALA_GAMES_DRIVE_FOLDER_ID) debe estar configurada.</p>
         </div>
       </section>
     </div>
@@ -333,15 +359,25 @@
     (function() {
       const ROCKETS = '#C8102E';
       const LAKERS = '#552583';
-      const subTabs = document.querySelectorAll('.sala-subtab');
-      const paneVideo = document.getElementById('pane-video');
-      const paneCharts = document.getElementById('pane-charts');
-      const gameSelect = document.getElementById('game-select');
+      const mainTabs = document.querySelectorAll('.main-tab');
+      const leftPaneVideo = document.getElementById('left-pane-video');
+      const leftPaneCharts = document.getElementById('left-pane-charts');
+      const rightStackVideo = document.getElementById('right-stack-video');
+      const rightStackCharts = document.getElementById('right-stack-charts');
+      const rightHeading = document.getElementById('right-heading');
+      const gameListEl = document.getElementById('game-list');
       const chartEmpty = document.getElementById('chart-empty');
       const btnPng = document.getElementById('btn-png');
       const chartEl = document.getElementById('chart-pps');
+      const uploadCard = document.getElementById('upload-card');
+      const uploadTitle = document.getElementById('upload-title');
+      const uploadFile = document.getElementById('upload-file');
+      const btnUploadXml = document.getElementById('btn-upload-xml');
+      const uploadStatus = document.getElementById('upload-status');
       let ppsChart = null;
       let lastChartTitle = 'grafico-partido';
+      let gamesData = [];
+      let currentMain = 'video';
 
       function getTeamColor(team) {
         if (/Lakers/i.test(team)) return LAKERS;
@@ -349,35 +385,73 @@
         return '#2a6fd5';
       }
 
-      function setSubTab(id) {
-        subTabs.forEach((b) => {
-          const on = b.dataset.subtab === id;
+      function setMainTab(id) {
+        currentMain = id;
+        mainTabs.forEach((b) => {
+          const on = b.dataset.main === id;
           b.classList.toggle('active', on);
           b.setAttribute('aria-selected', on ? 'true' : 'false');
         });
         const showV = id === 'video';
-        paneVideo.toggleAttribute('hidden', !showV);
-        paneCharts.toggleAttribute('hidden', showV);
-        if (id === 'charts' && ppsChart) ppsChart.resize();
-      }
-      subTabs.forEach((b) => b.addEventListener('click', () => setSubTab(b.dataset.subtab)));
-
-      async function loadGameList() {
-        const resp = await fetch('/api/private/games');
-        const data = await resp.json().catch(() => ({}));
-        if (!resp.ok) {
-          gameSelect.innerHTML = '<option value="">Error al cargar partidos</option>';
-          return;
+        leftPaneVideo.toggleAttribute('hidden', !showV);
+        leftPaneCharts.toggleAttribute('hidden', showV);
+        rightStackVideo.toggleAttribute('hidden', !showV);
+        rightStackCharts.toggleAttribute('hidden', showV);
+        if (showV) {
+          rightHeading.textContent = window.__salaCurrentVideoTitle || 'Selecciona un video';
+        } else {
+          if (gamesData.length) {
+            const g = gamesData.find((x) => x.id === (window.__salaSelectedGameId || gamesData[0].id)) || gamesData[0];
+            rightHeading.textContent = g.title || 'Gráficos del partido';
+          } else {
+            rightHeading.textContent = 'Gráficos del partido';
+          }
         }
-        const games = data.games || [];
-        if (!games.length) {
-          gameSelect.innerHTML = '<option value="">(ninguno)</option>';
+        if (id === 'charts' && ppsChart) requestAnimationFrame(() => ppsChart.resize());
+      }
+      mainTabs.forEach((b) => b.addEventListener('click', () => setMainTab(b.dataset.main)));
+
+      function renderGameList(selectId) {
+        if (!gamesData.length) {
+          gameListEl.innerHTML = '<div class="empty">No hay partidos con XML. Sube un archivo (admin).</div>';
           chartEmpty.style.display = 'block';
           return;
         }
         chartEmpty.style.display = 'none';
-        gameSelect.innerHTML = games.map((g) => `<option value="${g.id.replace(/"/g, '&quot;')}">${(g.title || g.id).replace(/</g, '')}</option>`).join('');
-        await loadChart(games[0].id, games[0].title);
+        const sel = selectId || gamesData[0].id;
+        window.__salaSelectedGameId = sel;
+        gameListEl.innerHTML = gamesData.map((g) => {
+          const active = g.id === sel ? ' active' : '';
+          const t = (g.title || g.id).replace(/</g, '');
+          return `<button type="button" class="item${active}" data-game-id="${g.id.replace(/"/g, '&quot;')}" data-title="${(g.title || '').replace(/"/g, '&quot;')}">
+            <span class="title">${t}</span>
+          </button>`;
+        }).join('');
+        const g0 = gamesData.find((g) => g.id === sel) || gamesData[0];
+        loadChart(g0.id, g0.title);
+        if (currentMain === 'charts') rightHeading.textContent = g0.title || 'Gráficos del partido';
+      }
+
+      gameListEl.addEventListener('click', (e) => {
+        const btn = e.target.closest('.item');
+        if (!btn || !btn.dataset.gameId) return;
+        window.__salaSelectedGameId = btn.dataset.gameId;
+        gameListEl.querySelectorAll('.item').forEach((b) => b.classList.toggle('active', b === btn));
+        const title = btn.dataset.title || '';
+        loadChart(btn.dataset.gameId, title);
+        if (currentMain === 'charts') rightHeading.textContent = title || 'Gráficos del partido';
+      });
+
+      async function loadGameList(preselectId) {
+        const resp = await fetch('/api/private/games');
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+          gameListEl.innerHTML = `<div class="empty">Error al cargar partidos</div>`;
+          gamesData = [];
+          return;
+        }
+        gamesData = data.games || [];
+        renderGameList(preselectId);
       }
 
       function buildOption(payload) {
@@ -473,13 +547,11 @@
           .slice(0, 80) || 'grafico';
         ppsChart.setOption(buildOption(data), true);
         btnPng.disabled = (data.players || []).length === 0;
+        if (currentMain === 'charts') {
+          rightHeading.textContent = data.title || titleFromSelect || 'Gráficos del partido';
+        }
         requestAnimationFrame(() => ppsChart && ppsChart.resize());
       }
-
-      gameSelect.addEventListener('change', () => {
-        const opt = gameSelect.options[gameSelect.selectedIndex];
-        loadChart(gameSelect.value, opt ? opt.text : '');
-      });
 
       window.addEventListener('resize', () => { if (ppsChart) ppsChart.resize(); });
 
@@ -492,13 +564,56 @@
         a.click();
       });
 
+      let uploadWired = false;
+      function wireXmlUpload() {
+        if (uploadWired) return;
+        uploadWired = true;
+        btnUploadXml.addEventListener('click', async () => {
+          const f = uploadFile.files && uploadFile.files[0];
+          if (!f) {
+            uploadStatus.className = 'upload-status error';
+            uploadStatus.textContent = 'Elige un archivo .xml';
+            return;
+          }
+          uploadStatus.className = 'upload-status';
+          uploadStatus.textContent = 'Subiendo...';
+          btnUploadXml.disabled = true;
+          const fd = new FormData();
+          fd.append('file', f);
+          const t = (uploadTitle && uploadTitle.value) ? uploadTitle.value.trim() : '';
+          if (t) fd.append('title', t);
+          const resp = await fetch('/api/private/games/upload', { method: 'POST', body: fd, credentials: 'include' });
+          const out = await resp.json().catch(() => ({}));
+          btnUploadXml.disabled = false;
+          if (!resp.ok) {
+            uploadStatus.className = 'upload-status error';
+            uploadStatus.textContent = out.error || 'Error al subir';
+            return;
+          }
+          uploadStatus.className = 'upload-status ok';
+          uploadStatus.textContent = 'Guardado. Cargando gráfico…';
+          uploadFile.value = '';
+          if (uploadTitle) uploadTitle.value = '';
+          await loadGameList(out.id);
+          setMainTab('charts');
+        });
+      }
+
       window.__salaLoadGames = loadGameList;
+      window.__salaSetMainTab = setMainTab;
+      window.__salaAfterAuth = (role) => {
+        const card = document.getElementById('upload-card');
+        if (card) {
+          card.style.display = role === 'admin' ? 'block' : 'none';
+          if (role === 'admin') wireXmlUpload();
+        }
+      };
     })();
   </script>
   <script>
     const listEl = document.getElementById('video-list');
     const player = document.getElementById('player');
-    const currentTitle = document.getElementById('current-title');
+    const rightHeading = document.getElementById('right-heading');
     const logoutBtn = document.getElementById('logout');
     const adminLink = document.getElementById('admin-link');
     const notesText = document.getElementById('notes-text');
@@ -529,6 +644,7 @@
         notesEditor.style.display = 'block';
         notesActions.style.display = 'flex';
       }
+      if (window.__salaAfterAuth) window.__salaAfterAuth(data.role);
       return true;
     }
 
@@ -565,10 +681,12 @@
 
     async function playVideo(id, title) {
       currentVideoId = id;
-      currentTitle.textContent = title || 'Reproduciendo';
+      const label = title || 'Reproduciendo';
+      window.__salaCurrentVideoTitle = label;
+      if (rightHeading) rightHeading.textContent = label;
       player.src = `/api/private/videos/${encodeURIComponent(id)}/stream`;
       player.play().catch(() => {});
-      document.querySelectorAll('.item').forEach((btn) => btn.classList.toggle('active', btn.dataset.id === id));
+      if (listEl) listEl.querySelectorAll('button.item').forEach((btn) => btn.classList.toggle('active', btn.dataset.id === id));
       await loadNotes(id);
     }
 
