@@ -388,7 +388,7 @@
               <div class="chart-type-tabs" role="tablist" aria-label="Tipo de gráfico">
                 <button type="button" class="chart-type-tab active" data-chart="pps" role="tab" aria-selected="true">FGA / PPS</button>
                 <button type="button" class="chart-type-tab" data-chart="efg" role="tab" aria-selected="false">eFG% / TS%</button>
-                <button type="button" class="chart-type-tab" data-chart="play" role="tab" aria-selected="false" title="Líneas de asistencias y pérdidas (conteo desde el XML)">AS / TOV</button>
+                <button type="button" class="chart-type-tab" data-chart="mix" role="tab" aria-selected="false" title="FGA 2P y 3P en barras apiladas (etiquetado en el XML)">2P + 3P</button>
               </div>
               <div class="chart-embed-tools">
                 <button type="button" class="chart-tool" id="btn-fullscreen" disabled title="Pantalla completa" aria-label="Pantalla completa">
@@ -441,10 +441,9 @@
       const CHART_HINTS = {
         pps: 'Eficiencia: volumen (FGA) frente a PPS. PPS = puntos de canasta de campo (sin tiros libres) entre intentos (FGA).',
         efg: 'Eficiencia ajustada: eFG% incluye el valor del triple. TS% incluye el impacto de los tiros libres. Escala 0–100 %.',
-        play: 'Conteos fieles al XML: cada asistencia y pérdida es una instancia etiquetada. Líneas = asistencias (oro) y pérdidas (rojo) por jugador. PER no está en el XML; si hace falta, se puede añadir un ratio o métrica derivada más adelante.'
+        mix: 'Desglose fiel al XML: cada tiro 2P o 3P suma 1 a FGA2 o FGA3. Barras apiladas = volumen total (altura) y reparto 2/3 (colores: morado 2P, oro 3P).'
       };
-      const CHART_FILE = { pps: 'fga-pps', efg: 'efg-ts', play: 'ast-tov-line' };
-      const TOV_LINE_COLOR = '#b83232';
+      const CHART_FILE = { pps: 'fga-pps', efg: 'efg-ts', mix: 'fga-2p-3p-stack' };
 
       function getTeamColor(team) {
         if (/Lakers/i.test(team)) return LAKERS_GOLD;
@@ -489,9 +488,6 @@
       }
 
       function setChartKind(kind) {
-        if (kind === 'play' && lastStatsPayload && !lastStatsPayload.hasPlaymaking) {
-          return;
-        }
         currentChartKind = kind;
         if (chartHintEl) chartHintEl.textContent = CHART_HINTS[kind] || CHART_HINTS.pps;
         setChartKindTabs(kind);
@@ -738,58 +734,52 @@
         };
       }
 
-      function buildOptionPlay(payload) {
-        const { players, hasPlaymaking } = payload;
-        const gridLine = { ...gridDef, left: 44, right: 32, top: 66, bottom: 82 };
+      function buildOptionMix(payload) {
+        const { players } = payload;
+        const gridMix = { ...gridDef, left: 48, right: 24, top: 66, bottom: 80 };
         const baseTitle = {
-          text: 'Asistencias y pérdidas (conteo XML)',
+          text: 'Perfil de tiro: FGA 2P y 3P (barras apiladas)',
           left: 'center',
           top: 10,
           textStyle: { fontSize: 15, color: LAKERS_GOLD, fontWeight: 600 }
         };
-        if (!hasPlaymaking) {
-          return {
-            backgroundColor: CHART_CANVAS_BG,
-            textStyle: { color: AXIS_LABEL },
-            title: baseTitle,
-            grid: gridLine,
-            xAxis: { type: 'category', data: [], show: false },
-            yAxis: { type: 'value', min: 0, name: 'Eventos' },
-            legend: { show: false },
-            series: [],
-            graphic: [{
-              type: 'text', left: 'center', top: '52%',
-              style: { text: 'No hay asistencias ni pérdidas etiquetadas en el XML', fill: CHART_SUBTEXT, fontSize: 12 }
-            }]
-          };
-        }
-        const rows = (players || []).filter((p) => (p.ast || 0) > 0 || (p.tov || 0) > 0);
+        const rows = (players || []).filter((p) => (p.fga || 0) >= 1);
         if (!rows.length) {
           return {
             backgroundColor: CHART_CANVAS_BG,
             textStyle: { color: AXIS_LABEL },
             title: baseTitle,
-            grid: gridLine,
-            xAxis: { type: 'category', data: [], show: false },
+            grid: gridMix,
+            xAxis: { type: 'category', data: [] },
             yAxis: { type: 'value', min: 0 },
             legend: { show: false },
             series: [],
             graphic: [{
               type: 'text', left: 'center', top: '52%',
-              style: { text: 'Ningún jugador con al menos una asistencia o pérdida en el recuento', fill: CHART_SUBTEXT, fontSize: 12 }
+              style: { text: 'No hay jugadores con al menos un tiro de campo (FGA)', fill: CHART_SUBTEXT, fontSize: 12 }
             }]
           };
         }
-        const cat = rows.map((p) => (p.label || p.name || '').toString().slice(0, 20));
-        const astS = rows.map((p) => p.ast || 0);
-        const tovS = rows.map((p) => p.tov || 0);
-        const yMax = Math.max(1, ...astS, ...tovS);
+        const cat = rows.map((p) => (p.label || p.name || '').toString().slice(0, 18));
+        const fga2d = [];
+        const fga3d = [];
+        rows.forEach((p) => {
+          let a2 = p.fga2 != null ? p.fga2 : 0;
+          let a3 = p.fga3 != null ? p.fga3 : 0;
+          const f = p.fga || 0;
+          if (a2 + a3 === 0 && f > 0) a2 = f;
+          else if (a2 + a3 < f) a2 += f - a2 - a3;
+          fga2d.push(a2);
+          fga3d.push(a3);
+        });
+        const sums = fga2d.map((a, i) => a + fga3d[i]);
+        const yMax = Math.max(1, ...sums);
         return {
           backgroundColor: CHART_CANVAS_BG,
           textStyle: { color: AXIS_LABEL },
-          animationDuration: 650,
+          animationDuration: 550,
           title: baseTitle,
-          grid: gridLine,
+          grid: gridMix,
           tooltip: {
             trigger: 'axis',
             backgroundColor: 'rgba(255, 255, 255, 0.98)',
@@ -799,11 +789,11 @@
           },
           xAxis: {
             type: 'category',
-            boundaryGap: true,
+            boundaryGap: [0.08, 0.08],
             data: cat,
             axisLabel: {
               color: AXIS_LABEL,
-              rotate: 35,
+              rotate: 32,
               fontSize: 9,
               interval: 0
             },
@@ -812,7 +802,7 @@
           },
           yAxis: {
             type: 'value',
-            name: 'Eventos (conteo)',
+            name: 'FGA (2P+3P)',
             nameLocation: 'middle',
             nameGap: 40,
             min: 0,
@@ -823,27 +813,23 @@
             axisLabel: { color: AXIS_LABEL },
             splitLine: { show: true, lineStyle: { type: 'dotted', color: 'rgba(0, 0, 0, 0.1)' } }
           },
-          legend: { ...legendDef, data: ['Asistencias', 'Pérdidas de balón'], show: true },
+          legend: { ...legendDef, data: ['FGA 2P', 'FGA 3P'], show: true },
           series: [
             {
-              name: 'Asistencias',
-              type: 'line',
-              data: astS,
-              smooth: 0.28,
-              symbol: 'circle',
-              symbolSize: 6,
-              lineStyle: { width: 2.5, color: LAKERS_GOLD },
-              itemStyle: { color: LAKERS_GOLD }
+              name: 'FGA 2P',
+              type: 'bar',
+              stack: 'fga',
+              data: fga2d,
+              barMaxWidth: 40,
+              itemStyle: { color: LAKERS_PURPLE }
             },
             {
-              name: 'Pérdidas de balón',
-              type: 'line',
-              data: tovS,
-              smooth: 0.28,
-              symbol: 'circle',
-              symbolSize: 6,
-              lineStyle: { width: 2.5, color: TOV_LINE_COLOR },
-              itemStyle: { color: TOV_LINE_COLOR }
+              name: 'FGA 3P',
+              type: 'bar',
+              stack: 'fga',
+              data: fga3d,
+              barMaxWidth: 40,
+              itemStyle: { color: LAKERS_GOLD }
             }
           ]
         };
@@ -851,7 +837,7 @@
 
       function buildChartOption(payload) {
         if (currentChartKind === 'efg') return buildOptionEfg(payload);
-        if (currentChartKind === 'play') return buildOptionPlay(payload);
+        if (currentChartKind === 'mix') return buildOptionMix(payload);
         return buildOptionPps(payload);
       }
 
@@ -873,13 +859,6 @@
         chartEmpty.style.display = 'none';
         if (!ppsChart) ppsChart = echarts.init(chartEl, null, { renderer: 'canvas' });
         lastStatsPayload = data;
-        const playTab = document.querySelector('.chart-type-tab[data-chart="play"]');
-        if (playTab) {
-          playTab.disabled = !data.hasPlaymaking;
-        }
-        if (currentChartKind === 'play' && !data.hasPlaymaking) {
-          currentChartKind = 'pps';
-        }
         if (chartHintEl) chartHintEl.textContent = CHART_HINTS[currentChartKind];
         setChartKindTabs(currentChartKind);
         lastChartTitle = (data.title || titleFromSelect || 'partido')
