@@ -472,7 +472,7 @@
       const CHART_HINTS = {
         pps: 'Eficiencia: volumen (FGA) frente a PPS. PPS = puntos de canasta de campo (sin tiros libres) entre intentos (FGA).',
         efg: 'Eficiencia ajustada: eFG% incluye el valor del triple. TS% incluye el impacto de los tiros libres. Escala 0–100 %.',
-        mix: 'Con conteos fieles al XML: morado = canastas 2P anotadas (FGM2, incl. la canasta de un 2+1), oro = triples anotados (FGM3, incl. canasta 3+1), gris = tiros libres anotados (FTM, 1 instancia = 1 acierto). Eje = suma de instancias, no puntos. Orden: más “actividad de acierto” arriba.'
+        mix: 'Barras = aciertos (FGM2+FGM3+FTM). En el tooltip: 2P, 3P y FT con formato metidos/tirados (p. ej. 3/7) según el XML. Eje: suma de aciertos. Orden: más actividad arriba.'
       };
       const CHART_FILE = { pps: 'fga-pps', efg: 'efg-ts', mix: 'anatomia-ataque-eventos' };
       const PTS_FT_GRAY = '#8d8d8d';
@@ -829,8 +829,11 @@
             const a2 = p.fgm2 != null ? p.fgm2 : 0;
             const a3 = p.fgm3 != null ? p.fgm3 : 0;
             const ft = p.ftm != null ? p.ftm : 0;
+            const t2 = p.fga2 != null ? p.fga2 : 0;
+            const t3 = p.fga3 != null ? p.fga3 : 0;
+            const tFt = p.fta != null ? p.fta : 0;
             const tot = a2 + a3 + ft;
-            return { p, a2, a3, ft, tot };
+            return { p, a2, a3, ft, t2, t3, tFt, tot };
           })
           .filter((r) => (r.tot || 0) > 0)
           .sort((x, y) => y.tot - x.tot);
@@ -854,6 +857,9 @@
         const d2 = withEv.map((r) => r.a2);
         const d3 = withEv.map((r) => r.a3);
         const dFt = withEv.map((r) => r.ft);
+        const t2a = withEv.map((r) => r.t2);
+        const t3a = withEv.map((r) => r.t3);
+        const tFta = withEv.map((r) => r.tFt);
         const yMax = Math.max(1, ...withEv.map((r) => r.tot));
         const xMax = yMax + Math.max(1, Math.ceil(yMax * 0.05));
         return {
@@ -868,7 +874,17 @@
             backgroundColor: 'rgba(255, 255, 255, 0.98)',
             borderColor: 'rgba(85, 37, 131, 0.28)',
             borderWidth: 1,
-            textStyle: { color: IN_GRID_TEXT }
+            textStyle: { color: IN_GRID_TEXT },
+            formatter: (params) => {
+              if (!params || !params.length) return '';
+              const i = params[0].dataIndex;
+              if (i == null || i < 0) return '';
+              const name = cat[i] != null ? String(cat[i]) : '';
+              const r2 = `${d2[i] != null ? d2[i] : 0}/${t2a[i] != null ? t2a[i] : 0}`;
+              const r3 = `${d3[i] != null ? d3[i] : 0}/${t3a[i] != null ? t3a[i] : 0}`;
+              const rFt = `${dFt[i] != null ? dFt[i] : 0}/${tFta[i] != null ? tFta[i] : 0}`;
+              return `${name}<br/>2P: ${r2}<br/>3P: ${r3}<br/>FT: ${rFt}`;
+            }
           },
           xAxis: {
             type: 'value',
