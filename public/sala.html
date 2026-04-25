@@ -200,6 +200,66 @@
       transform: none;
     }
     .empty { color: var(--text-secondary); padding: 18px; }
+    .sala-subtabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+    .sala-subtab {
+      border-radius: 10px;
+      padding: 8px 14px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 13px;
+      border: 1px solid rgba(253, 185, 39, 0.28);
+      background: rgba(14, 10, 23, 0.65);
+      color: var(--text-secondary);
+    }
+    .sala-subtab:hover { background: rgba(85, 37, 131, 0.35); color: var(--text-primary); }
+    .sala-subtab.active {
+      border-color: var(--lakers-gold);
+      color: #231038;
+      background: linear-gradient(180deg, #f7bf3f, #fdb927);
+    }
+    .chart-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .chart-toolbar label { font-size: 13px; color: var(--text-secondary); display: flex; align-items: center; gap: 8px; }
+    .chart-toolbar select {
+      min-width: 220px;
+      border-radius: 8px;
+      border: 1px solid rgba(253, 185, 39, 0.28);
+      background: rgba(6, 4, 12, 0.65);
+      color: var(--text-primary);
+      padding: 8px 10px;
+      font-size: 13px;
+    }
+    .btn-png {
+      border-radius: 10px;
+      padding: 8px 14px;
+      cursor: pointer;
+      font-weight: 600;
+      border: 1px solid rgba(253, 185, 39, 0.45);
+      background: rgba(17, 12, 28, 0.86);
+      color: var(--text-primary);
+    }
+    .btn-png:hover { background: rgba(85, 37, 131, 0.45); }
+    .chart-hint { font-size: 12px; color: var(--text-secondary); margin: 0 0 8px; line-height: 1.4; }
+    .chart-box {
+      width: 100%;
+      min-height: 420px;
+      height: 52vh;
+      max-height: 640px;
+      border-radius: 12px;
+      border: 1px solid rgba(253, 185, 39, 0.15);
+      background: #faf7ff;
+    }
+    .tab-pane[hidden] { display: none !important; }
     @media (max-width: 980px) {
       .layout { grid-template-columns: 1fr; }
       .brand-title { font-size: 22px; }
@@ -230,6 +290,11 @@
 
       <section class="panel">
         <h2 id="current-title">Selecciona un video</h2>
+        <div class="sala-subtabs" role="tablist">
+          <button type="button" class="sala-subtab active" data-subtab="video" role="tab" aria-selected="true">Video y analisis</button>
+          <button type="button" class="sala-subtab" data-subtab="charts" role="tab" aria-selected="false">Graficos del partido</button>
+        </div>
+        <div id="pane-video" class="tab-pane" role="tabpanel">
         <div class="player-wrap">
           <span class="status-pill">Analisis privado</span>
           <video id="player" controls playsinline preload="metadata"></video>
@@ -245,10 +310,191 @@
             </div>
           </div>
         </div>
+        </div>
+        <div id="pane-charts" class="tab-pane" role="tabpanel" hidden>
+          <p class="chart-hint">Eficiencia: volumen (FGA) frente a puntos por tiro (PPS). PPS = puntos de canasta de campo (sin tiros libres) entre intentos de campo. Datos leidos del XML; no se guarda la imagen en el servidor: usa &quot;Descargar PNG&quot; si quieres una copia local.</p>
+          <div class="chart-toolbar">
+            <label>Partido
+              <select id="game-select" aria-label="Elegir partido">
+                <option value="">Cargando...</option>
+              </select>
+            </label>
+            <button type="button" class="btn-png" id="btn-png" disabled>Descargar PNG</button>
+          </div>
+          <div id="chart-pps" class="chart-box" aria-label="Grafico Volumen vs PPS"></div>
+          <p id="chart-empty" class="empty" style="display:none; margin-top:12px">No hay partidos con XML en el servidor. Añade archivos bajo <code>data/games</code> y <code>manifest.json</code>.</p>
+        </div>
       </section>
     </div>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js" crossorigin="anonymous"></script>
+  <script>
+    (function() {
+      const ROCKETS = '#C8102E';
+      const LAKERS = '#552583';
+      const subTabs = document.querySelectorAll('.sala-subtab');
+      const paneVideo = document.getElementById('pane-video');
+      const paneCharts = document.getElementById('pane-charts');
+      const gameSelect = document.getElementById('game-select');
+      const chartEmpty = document.getElementById('chart-empty');
+      const btnPng = document.getElementById('btn-png');
+      const chartEl = document.getElementById('chart-pps');
+      let ppsChart = null;
+      let lastChartTitle = 'grafico-partido';
+
+      function getTeamColor(team) {
+        if (/Lakers/i.test(team)) return LAKERS;
+        if (/Rockets/i.test(team)) return ROCKETS;
+        return '#2a6fd5';
+      }
+
+      function setSubTab(id) {
+        subTabs.forEach((b) => {
+          const on = b.dataset.subtab === id;
+          b.classList.toggle('active', on);
+          b.setAttribute('aria-selected', on ? 'true' : 'false');
+        });
+        const showV = id === 'video';
+        paneVideo.toggleAttribute('hidden', !showV);
+        paneCharts.toggleAttribute('hidden', showV);
+        if (id === 'charts' && ppsChart) ppsChart.resize();
+      }
+      subTabs.forEach((b) => b.addEventListener('click', () => setSubTab(b.dataset.subtab)));
+
+      async function loadGameList() {
+        const resp = await fetch('/api/private/games');
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+          gameSelect.innerHTML = '<option value="">Error al cargar partidos</option>';
+          return;
+        }
+        const games = data.games || [];
+        if (!games.length) {
+          gameSelect.innerHTML = '<option value="">(ninguno)</option>';
+          chartEmpty.style.display = 'block';
+          return;
+        }
+        chartEmpty.style.display = 'none';
+        gameSelect.innerHTML = games.map((g) => `<option value="${g.id.replace(/"/g, '&quot;')}">${(g.title || g.id).replace(/</g, '')}</option>`).join('');
+        await loadChart(games[0].id, games[0].title);
+      }
+
+      function buildOption(payload) {
+        const { players, meanPps, title } = payload;
+        const byTeam = new Map();
+        (players || []).forEach((p) => {
+          if (!byTeam.has(p.team)) byTeam.set(p.team, []);
+          byTeam.get(p.team).push([p.fga, p.pps, p.label, getTeamColor(p.team)]);
+        });
+        const series = [];
+        for (const [team, pts] of byTeam) {
+          series.push({
+            name: team,
+            type: 'scatter',
+            data: pts,
+            itemStyle: { color: getTeamColor(team), borderColor: '#222', borderWidth: 1 },
+            symbolSize: 16,
+            label: {
+              show: true,
+              position: 'right',
+              color: '#1a1a1a',
+              fontSize: 10,
+              formatter: (param) => (param.data && param.data[2]) ? String(param.data[2]) : ''
+            }
+          });
+        }
+        if (typeof meanPps === 'number' && !Number.isNaN(meanPps) && series.length) {
+          series[0].markLine = {
+            symbol: 'none',
+            lineStyle: { type: 'dashed', color: '#2563eb', width: 1.5 },
+            label: { show: true, formatter: 'Media PPS', color: '#1e3a5f' },
+            data: [{ yAxis: meanPps }]
+          };
+        }
+        return {
+          backgroundColor: 'transparent',
+          textStyle: { color: '#1a1a1a' },
+          title: {
+            text: 'Jerarquia de eficiencia: Volumen (FGA) vs. PPS',
+            subtext: title || '',
+            left: 'center',
+            top: 8,
+            textStyle: { fontSize: 15, color: '#1a1a1a' },
+            subtextStyle: { color: '#444', fontSize: 12 }
+          },
+          grid: { left: 58, right: 100, top: 72, bottom: 48 },
+          tooltip: {
+            trigger: 'item',
+            formatter: (p) => {
+              const d = p.data || [];
+              return `${d[2] || ''}<br/>FGA: ${d[0]}<br/>PPS: ${d[1]}`;
+            }
+          },
+          xAxis: {
+            name: 'Volumen (tiros de campo intentados)',
+            nameLocation: 'middle',
+            nameGap: 32,
+            min: 0,
+            axisLine: { lineStyle: { color: '#999' } },
+            splitLine: { show: true, lineStyle: { type: 'dotted', color: '#ddd' } }
+          },
+          yAxis: {
+            name: 'Eficiencia (puntos de campo / FGA)',
+            nameLocation: 'middle',
+            nameGap: 40,
+            min: 0,
+            scale: true,
+            axisLine: { lineStyle: { color: '#999' } },
+            splitLine: { show: true, lineStyle: { type: 'dotted', color: '#ddd' } }
+          },
+          legend: { right: 12, top: 36, textStyle: { color: '#333' } },
+          series
+        };
+      }
+
+      async function loadChart(gameId, titleFromSelect) {
+        if (!gameId) return;
+        if (typeof echarts === 'undefined') return;
+        btnPng.disabled = true;
+        const resp = await fetch(`/api/private/games/${encodeURIComponent(gameId)}/stats`);
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+          if (ppsChart) ppsChart.clear();
+          chartEmpty.textContent = data.error || 'No se pudieron cargar las estadisticas.';
+          chartEmpty.style.display = 'block';
+          return;
+        }
+        chartEmpty.style.display = 'none';
+        if (!ppsChart) ppsChart = echarts.init(chartEl, null, { renderer: 'canvas' });
+        lastChartTitle = (data.title || titleFromSelect || 'partido')
+          .replace(/[^\w\-\s\u00C0-\u024F.]/g, '_')
+          .replace(/\s+/g, '-')
+          .slice(0, 80) || 'grafico';
+        ppsChart.setOption(buildOption(data), true);
+        btnPng.disabled = (data.players || []).length === 0;
+        requestAnimationFrame(() => ppsChart && ppsChart.resize());
+      }
+
+      gameSelect.addEventListener('change', () => {
+        const opt = gameSelect.options[gameSelect.selectedIndex];
+        loadChart(gameSelect.value, opt ? opt.text : '');
+      });
+
+      window.addEventListener('resize', () => { if (ppsChart) ppsChart.resize(); });
+
+      btnPng.addEventListener('click', () => {
+        if (!ppsChart) return;
+        const u = ppsChart.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#faf7ff' });
+        const a = document.createElement('a');
+        a.href = u;
+        a.download = `pps-${lastChartTitle}.png`;
+        a.click();
+      });
+
+      window.__salaLoadGames = loadGameList;
+    })();
+  </script>
   <script>
     const listEl = document.getElementById('video-list');
     const player = document.getElementById('player');
@@ -377,6 +623,7 @@
       const ok = await checkSession();
       if (!ok) return;
       await loadVideos();
+      if (window.__salaLoadGames) await window.__salaLoadGames();
     })();
   </script>
 </body>

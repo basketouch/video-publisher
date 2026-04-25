@@ -11,6 +11,11 @@ const bodyParser = require('body-parser');
 const cookieSession = require('cookie-session');
 const { google } = require('googleapis');
 const { createClient } = require('@supabase/supabase-js');
+const { aggregateFromXmlString } = require('./lib/statsFromScoutingXml');
+
+const GAMES_DATA_DIR = process.env.GAME_DATA_DIR
+  ? path.resolve(process.env.GAME_DATA_DIR)
+  : path.join(__dirname, 'data', 'games');
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'info@basketouch.com';
 const ADMIN_USERNAME = (process.env.ADMIN_USERNAME || ADMIN_EMAIL || '').trim().toLowerCase();
@@ -820,6 +825,78 @@ app.put('/api/private/videos/:id/notes', requireAdmin, async (req, res) => {
       });
     }
     res.status(500).json({ error: 'No se pudo guardar el análisis del video', detail: driveErrorDetail(err) });
+  }
+});
+
+// XML de partidos: solo bajo /data/games (no en public/); requiere login de sala
+app.get('/api/private/games', requireAuth, async (req, res) => {
+  const manifestPath = path.join(GAMES_DATA_DIR, 'manifest.json');
+  try {
+    const raw = await fsp.readFile(manifestPath, 'utf8');
+    const { games: list } = JSON.parse(raw);
+    const games = [];
+    for (const g of list || []) {
+      if (!g.id || !g.file) continue;
+      if (String(g.file).includes('..') || path.isAbsolute(g.file)) continue;
+      const fp = path.join(GAMES_DATA_DIR, path.basename(g.file));
+      try {
+        await fsp.access(fp, fs.constants.R_OK);
+        games.push({ id: g.id, title: g.title || g.id });
+      } catch {
+        // omitir si no existe el XML en el servidor
+      }
+    }
+    res.json({ games });
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      return res.json({ games: [] });
+    }
+    console.error('Error leyendo manifest de partidos:', err);
+    res.status(500).json({ error: 'No se pudo leer el listado de partidos' });
+  }
+});
+
+app.get('/api/private/games/:id/stats', requireAuth, async (req, res) => {
+  const manifestPath = path.join(GAMES_DATA_DIR, 'manifest.json');
+  let list;
+  try {
+    const raw = await fsp.readFile(manifestPath, 'utf8');
+    list = JSON.parse(raw).games || [];
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      return res.status(404).json({ error: 'No hay partidos configurados (falta data/games/manifest.json)' });
+    }
+    console.error(err);
+    return res.status(500).json({ error: 'Error leyendo el catálogo de partidos' });
+  }
+  const entry = list.find((g) => g.id === req.params.id);
+  if (!entry) {
+    return res.status(404).json({ error: 'Partido no encontrado' });
+  }
+  if (!entry.file || String(entry.file).includes('..') || path.isAbsolute(entry.file)) {
+    return res.status(400).json({ error: 'Entrada de partido inválida' });
+  }
+  const fp = path.join(GAMES_DATA_DIR, path.basename(entry.file));
+  let xml;
+  try {
+    xml = await fsp.readFile(fp, 'utf8');
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      return res.status(404).json({ error: 'Falta el archivo XML en el servidor' });
+    }
+    throw err;
+  }
+  try {
+    const { players, meanPps } = aggregateFromXmlString(xml);
+    res.json({
+      id: entry.id,
+      title: entry.title || entry.id,
+      players,
+      meanPps
+    });
+  } catch (e) {
+    console.error('Error agregando stats del partido:', e);
+    res.status(500).json({ error: 'No se pudo analizar el XML del partido' });
   }
 });
 
