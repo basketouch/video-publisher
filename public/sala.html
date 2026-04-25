@@ -243,6 +243,9 @@
       box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
       padding: 10px 10px 12px;
     }
+    .chart-embed .chart-box {
+      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.12);
+    }
     .chart-embed:fullscreen,
     .chart-embed:-webkit-full-screen {
       border-radius: 0;
@@ -284,8 +287,8 @@
       height: 50vh;
       max-height: 620px;
       border-radius: 10px;
-      border: 1px solid rgba(253, 185, 39, 0.22);
-      background: rgba(5, 3, 12, 0.35);
+      border: 1px solid rgba(0, 0, 0, 0.1);
+      background: #ffffff;
     }
     .tab-pane[hidden] { display: none !important; }
     @media (max-width: 980px) {
@@ -364,11 +367,13 @@
   <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js" crossorigin="anonymous"></script>
   <script>
     (function() {
-      const LAKERS_PURPLE_LIGHT = '#9b69d4';
       const LAKERS_GOLD = '#fdb927';
+      const LAKERS_PURPLE = '#552583';
       const ROCKETS = '#C8102E';
-      const CHART_BG = 'transparent';
-      const CHART_PNG_BG = '#0e0a18';
+      const CHART_BG = '#ffffff';
+      const CHART_PNG_BG = '#ffffff';
+      const CHART_TEXT = '#1a1a1a';
+      const CHART_MUTED = '#4a4a4a';
       const mainTabs = document.querySelectorAll('.main-tab');
       const chartEmbed = document.getElementById('chart-embed');
       const btnFullscreen = document.getElementById('btn-fullscreen');
@@ -387,7 +392,7 @@
       let currentMain = 'video';
 
       function getTeamColor(team) {
-        if (/Lakers/i.test(team)) return LAKERS_PURPLE_LIGHT;
+        if (/Lakers/i.test(team)) return LAKERS_GOLD;
         if (/Rockets/i.test(team)) return ROCKETS;
         return '#4a7dcc';
       }
@@ -470,20 +475,22 @@
         });
         const series = [];
         for (const [team, pts] of byTeam) {
+          const isLakers = /Lakers/i.test(team);
           const col = getTeamColor(team);
-          const border = /Lakers/i.test(team) ? LAKERS_GOLD : 'rgba(0,0,0,0.5)';
           series.push({
             name: team,
             type: 'scatter',
             data: pts,
-            itemStyle: { color: col, borderColor: border, borderWidth: /Lakers/i.test(team) ? 2 : 1 },
+            itemStyle: isLakers
+              ? { color: col, borderWidth: 0 }
+              : { color: col, borderColor: 'rgba(0,0,0,0.4)', borderWidth: 1 },
             symbolSize: 16,
             label: {
               show: true,
               position: 'right',
-              color: '#f0e6ff',
+              color: CHART_TEXT,
               fontSize: 10,
-              textBorderColor: 'rgba(0,0,0,0.5)',
+              textBorderColor: 'rgba(255,255,255,0.9)',
               textBorderWidth: 1,
               formatter: (param) => (param.data && param.data[2]) ? String(param.data[2]) : ''
             }
@@ -500,22 +507,22 @@
         const gridTop = 78;
         return {
           backgroundColor: CHART_BG,
-          textStyle: { color: LAKERS_GOLD },
+          textStyle: { color: CHART_TEXT },
           title: {
             text: 'Jerarquia de eficiencia: Volumen (FGA) vs. PPS',
             subtext: title || '',
             left: 'center',
             top: 10,
-            textStyle: { fontSize: 15, color: LAKERS_GOLD, fontWeight: 600 },
-            subtextStyle: { color: 'rgba(205, 199, 232, 0.9)', fontSize: 12 }
+            textStyle: { fontSize: 15, color: LAKERS_PURPLE, fontWeight: 600 },
+            subtextStyle: { color: CHART_MUTED, fontSize: 12 }
           },
           grid: { left: 58, right: 100, top: gridTop, bottom: 50 },
           tooltip: {
             trigger: 'item',
-            backgroundColor: 'rgba(22, 14, 42, 0.94)',
-            borderColor: 'rgba(253, 185, 39, 0.45)',
+            backgroundColor: 'rgba(255, 255, 255, 0.96)',
+            borderColor: 'rgba(85, 37, 131, 0.35)',
             borderWidth: 1,
-            textStyle: { color: '#f5f2ff' },
+            textStyle: { color: CHART_TEXT },
             formatter: (p) => {
               const d = p.data || [];
               return `${d[2] || ''}<br/>FGA: ${d[0]}<br/>PPS: ${d[1]}`;
@@ -526,10 +533,10 @@
             nameLocation: 'middle',
             nameGap: 32,
             min: 0,
-            nameTextStyle: { color: 'rgba(225, 210, 255, 0.9)', fontSize: 11 },
-            axisLine: { lineStyle: { color: 'rgba(253, 185, 39, 0.35)' } },
-            axisLabel: { color: 'rgba(245, 242, 255, 0.88)' },
-            splitLine: { show: true, lineStyle: { type: 'dotted', color: 'rgba(85, 37, 131, 0.35)' } }
+            nameTextStyle: { color: CHART_MUTED, fontSize: 11 },
+            axisLine: { lineStyle: { color: 'rgba(0, 0, 0, 0.2)' } },
+            axisLabel: { color: CHART_MUTED },
+            splitLine: { show: true, lineStyle: { type: 'dotted', color: 'rgba(0, 0, 0, 0.08)' } }
           },
           yAxis: {
             name: 'Eficiencia (puntos de campo / FGA)',
@@ -537,16 +544,16 @@
             nameGap: 40,
             min: 0,
             scale: true,
-            nameTextStyle: { color: 'rgba(225, 210, 255, 0.9)', fontSize: 11 },
-            axisLine: { lineStyle: { color: 'rgba(253, 185, 39, 0.35)' } },
-            axisLabel: { color: 'rgba(245, 242, 255, 0.88)' },
-            splitLine: { show: true, lineStyle: { type: 'dotted', color: 'rgba(85, 37, 131, 0.35)' } }
+            nameTextStyle: { color: CHART_MUTED, fontSize: 11 },
+            axisLine: { lineStyle: { color: 'rgba(0, 0, 0, 0.2)' } },
+            axisLabel: { color: CHART_MUTED },
+            splitLine: { show: true, lineStyle: { type: 'dotted', color: 'rgba(0, 0, 0, 0.08)' } }
           },
           legend: {
             right: 12,
             top: 40,
-            textStyle: { color: 'rgba(253, 185, 39, 0.95)' },
-            inactiveColor: 'rgba(200, 200, 200, 0.4)'
+            textStyle: { color: CHART_TEXT },
+            inactiveColor: 'rgba(150, 150, 150, 0.7)'
           },
           series
         };
