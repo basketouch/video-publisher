@@ -207,7 +207,6 @@
       border-left-color: var(--lakers-gold);
     }
     .title { font-size: 14px; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
-    .meta { color: var(--text-secondary); font-size: 12px; margin-top: 4px; display: block; }
     .player-wrap {
       padding: 16px;
       position: relative;
@@ -448,7 +447,6 @@
       white-space: nowrap;
     }
     .video-sort-bar .chart-team-select { flex: 1; min-width: 0; max-width: 100%; }
-    .item-folder .meta { text-transform: uppercase; letter-spacing: 0.4px; font-size: 10px; }
     .item-folder .title::before { content: '📁 '; }
     .pane-label {
       font-size: 12px;
@@ -1744,12 +1742,6 @@
         .join('');
     }
 
-    function formatDate(value) {
-      if (!value) return '';
-      const d = new Date(value);
-      return d.toLocaleDateString('es-ES');
-    }
-
     async function checkSession() {
       const resp = await fetch('/api/auth/status');
       const data = await resp.json();
@@ -1786,11 +1778,6 @@
           (f) => `
         <button type="button" class="item item-folder" data-folder-id="${(f.id || '').replace(/"/g, '&quot;')}" data-title="${(f.name || '').replace(/"/g, '&quot;')}">
           <span class="title">${escapeHtml(f.name)}</span>
-          <span class="meta">${
-            f.modifiedTime
-              ? `Carpeta · ${formatDate(f.modifiedTime)}`
-              : 'Carpeta'
-          }</span>
         </button>`
         )
         .join('');
@@ -1799,7 +1786,6 @@
           (v) => `
         <button type="button" class="item ${v.id && currentVideoId === v.id ? 'active' : ''}" data-id="${(v.id || '').replace(/"/g, '&quot;')}" data-title="${(v.title || '').replace(/"/g, '&quot;')}">
           <span class="title">${escapeHtml(v.title)}</span>
-          <span class="meta">${formatDate(v.modifiedTime)}</span>
         </button>`
         )
         .join('');
