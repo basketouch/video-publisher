@@ -235,6 +235,42 @@
       border: 1px solid rgba(253, 185, 39, 0.28);
       box-shadow: 0 16px 28px rgba(0, 0, 0, 0.35);
     }
+    .video-speed-bar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px 12px;
+      margin: 10px 0 0;
+      padding: 8px 10px;
+      border-radius: 10px;
+      background: rgba(8, 6, 16, 0.55);
+      border: 1px solid rgba(253, 185, 39, 0.15);
+    }
+    .video-speed-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-secondary);
+    }
+    .video-speed-select {
+      min-width: 100px;
+      max-width: 100%;
+      border-radius: 8px;
+      padding: 6px 10px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-primary);
+      background: rgba(8, 6, 16, 0.85);
+      border: 1px solid rgba(253, 185, 39, 0.32);
+      cursor: pointer;
+    }
+    .video-speed-select:hover { border-color: rgba(253, 185, 39, 0.5); }
+    .video-speed-select:focus { outline: none; border-color: var(--lakers-gold); }
+    .video-speed-hint {
+      font-size: 11px;
+      color: var(--text-secondary);
+      margin: 0;
+      flex: 1 1 100%;
+    }
     .notes-box {
       margin-top: 14px;
       border: 1px solid rgba(253, 185, 39, 0.2);
@@ -613,6 +649,18 @@
           <div class="player-wrap">
             <span class="status-pill">Analisis privado</span>
             <video id="player" controls playsinline preload="metadata"></video>
+            <div class="video-speed-bar" id="player-speed-wrap" aria-label="Ajuste de carga y velocidad">
+              <span class="video-speed-label" id="player-speed-label">Velocidad</span>
+              <select id="sala-playback-rate" class="video-speed-select" title="Velocidad de reproducción" aria-label="Velocidad de reproducción">
+                <option value="0.5">0,5×</option>
+                <option value="0.75">0,75×</option>
+                <option value="1">1× (normal)</option>
+                <option value="1.25">1,25×</option>
+                <option value="1.5">1,5×</option>
+                <option value="2">2×</option>
+              </select>
+              <p class="video-speed-hint" id="player-preload-hint">Más buffer al abrir un clip. La fluidez depende de la red y del enlace a Drive.</p>
+            </div>
             <div class="notes-box" id="sala-video-notes-box">
               <div class="notes-header">
                 <div class="notes-header-main">
@@ -1560,6 +1608,50 @@
     let currentRole = null;
     let currentVideoId = null;
 
+    const rateSelect = document.getElementById('sala-playback-rate');
+    const PLAYBACK_RATE_KEY = 'salaPlaybackRate';
+    const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 2];
+    function applyPlaybackRate(r) {
+      const raw = isFinite(parseFloat(r)) ? parseFloat(r) : 1;
+      const x = PLAYBACK_RATES.reduce(
+        (best, b) => (Math.abs(b - raw) < Math.abs(best - raw) ? b : best),
+        1
+      );
+      player.defaultPlaybackRate = x;
+      player.playbackRate = x;
+      if (rateSelect) {
+        const opt = [...rateSelect.options].find((o) => Math.abs(parseFloat(o.value) - x) < 0.001);
+        rateSelect.value = opt ? opt.value : '1';
+      }
+      try {
+        sessionStorage.setItem(PLAYBACK_RATE_KEY, String(x));
+      } catch (e) {}
+    }
+    function readStoredPlaybackRate() {
+      try {
+        const v = parseFloat(sessionStorage.getItem(PLAYBACK_RATE_KEY) || '1');
+        return isFinite(v) ? v : 1;
+      } catch (e) {
+        return 1;
+      }
+    }
+    function initPlaybackRateUI() {
+      if (!rateSelect) return;
+      applyPlaybackRate(readStoredPlaybackRate());
+      rateSelect.addEventListener('change', () => {
+        applyPlaybackRate(parseFloat(rateSelect.value) || 1);
+      });
+      player.addEventListener('ratechange', () => {
+        const pr = player.playbackRate;
+        if (!rateSelect) return;
+        const hit = PLAYBACK_RATES.find((b) => Math.abs(b - pr) < 0.02);
+        if (hit != null && rateSelect.value !== String(hit)) {
+          rateSelect.value = String(hit);
+        }
+      });
+    }
+    initPlaybackRateUI();
+
     function privateVideoQuerySuffix() {
       const folderId =
         currentSalaListFolderId ||
@@ -1707,7 +1799,15 @@
       const label = title || 'Reproduciendo';
       window.__salaCurrentVideoTitle = label;
       if (rightHeading) rightHeading.textContent = label;
+      player.preload = 'auto';
+      applyPlaybackRate(readStoredPlaybackRate());
       player.src = `/api/private/videos/${encodeURIComponent(id)}/stream${privateVideoQuerySuffix()}`;
+      if (typeof player.load === 'function') player.load();
+      const fixRate = () => {
+        applyPlaybackRate(readStoredPlaybackRate());
+        player.removeEventListener('loadedmetadata', fixRate);
+      };
+      player.addEventListener('loadedmetadata', fixRate);
       if (listEl) listEl.querySelectorAll('button.item').forEach((btn) => btn.classList.toggle('active', btn.dataset.id === id));
       await loadNotes(id);
     }
@@ -1743,12 +1843,14 @@
         if (rightHeading) rightHeading.textContent = data.folderName || 'Videos';
         window.__salaCurrentVideoTitle = '';
         player.removeAttribute('src');
+        player.preload = 'metadata';
         if (typeof player.load === 'function') player.load();
         notesText.textContent = 'Elige un video de la lista; pulsa play en el reproductor para verlo.';
         notesEditor.value = '';
         notesMeta.textContent = '';
       } else {
         player.removeAttribute('src');
+        player.preload = 'metadata';
         if (typeof player.load === 'function') player.load();
         currentVideoId = null;
         window.__salaCurrentVideoTitle = '';

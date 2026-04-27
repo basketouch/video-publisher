@@ -1252,7 +1252,7 @@ app.get('/api/private/videos/:id/stream', requireAuth, async (req, res) => {
       const v = pickHeader(rh, n);
       if (v) res.setHeader(n, v);
     }
-    res.setHeader('Cache-Control', 'private, max-age=120');
+    res.setHeader('Cache-Control', 'private, max-age=300, stale-while-revalidate=60');
 
     upstream.data.on('error', (e) => {
       console.error('Error en stream upstream:', e.message);
