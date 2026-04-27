@@ -64,7 +64,67 @@
       color: #231038;
     }
     .btn-logout:hover { filter: brightness(1.03); }
-    .layout { display: grid; grid-template-columns: 340px 1fr; gap: 18px; }
+    .layout {
+      display: grid;
+      grid-template-columns: 340px 1fr;
+      gap: 18px;
+    }
+    .layout--left-collapsed { grid-template-columns: 48px 1fr; }
+    .sala-left-panel { display: flex; flex-direction: column; }
+    .sala-nav-head {
+      display: flex;
+      align-items: stretch;
+      border-bottom: 1px solid rgba(253, 185, 39, 0.16);
+      background: rgba(14, 10, 23, 0.7);
+    }
+    .sala-nav-head .main-tabs { flex: 1; min-width: 0; border-bottom: none; }
+    .sala-side-toggle {
+      flex-shrink: 0;
+      width: 44px;
+      border: none;
+      border-left: 1px solid rgba(253, 185, 39, 0.16);
+      background: rgba(8, 6, 16, 0.55);
+      color: var(--lakers-gold);
+      font-size: 15px;
+      line-height: 1;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+    }
+    .sala-side-toggle:hover { background: rgba(85, 37, 131, 0.35); color: var(--text-primary); }
+    .sala-left-expanded {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      min-height: 0;
+    }
+    .sala-left-collapsed-bar {
+      display: flex;
+      flex: 1;
+      flex-direction: column;
+      align-items: center;
+      padding: 10px 0;
+      min-height: 120px;
+    }
+    .sala-left-collapsed-bar .sala-side-toggle--open { width: 40px; min-height: 44px; border-radius: 10px; border: 1px solid rgba(253, 185, 39, 0.22); }
+    .layout--left-collapsed .sala-left-panel { min-height: 0; }
+    .sala-notes-fold {
+      flex-shrink: 0;
+      align-self: flex-start;
+      width: 36px;
+      height: 32px;
+      border-radius: 8px;
+      border: 1px solid rgba(253, 185, 39, 0.28);
+      background: rgba(8, 6, 16, 0.65);
+      color: var(--lakers-gold);
+      font-size: 12px;
+      line-height: 1;
+      cursor: pointer;
+      margin-top: 2px;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .sala-notes-fold:hover { background: rgba(85, 37, 131, 0.35); border-color: rgba(253, 185, 39, 0.45); }
+    .notes-box.notes--collapsed { padding-bottom: 10px; }
+    .notes-box.notes--collapsed .notes-body { display: none !important; }
     .panel {
       background: linear-gradient(180deg, rgba(28, 16, 48, 0.92), rgba(13, 10, 22, 0.96));
       border: 1px solid var(--border-soft);
@@ -139,10 +199,11 @@
     .notes-header {
       display: flex;
       justify-content: space-between;
-      align-items: center;
-      gap: 10px;
+      align-items: flex-start;
+      gap: 8px;
       margin-bottom: 10px;
     }
+    .notes-header-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
     .notes-title {
       font-size: 13px;
       text-transform: uppercase;
@@ -418,6 +479,13 @@
     .chart-page-notes { margin-top: 16px; }
     @media (max-width: 980px) {
       .layout { grid-template-columns: 1fr; }
+      .layout--left-collapsed { grid-template-columns: 1fr; }
+      .layout--left-collapsed .sala-left-panel {
+        min-height: 0;
+        max-height: 56px;
+        overflow: hidden;
+      }
+      .layout--left-collapsed .sala-left-collapsed-bar { min-height: 48px; padding: 4px 0; }
       .brand-title { font-size: 22px; }
       .toolbar { align-items: flex-start; flex-direction: column; }
     }
@@ -443,11 +511,22 @@
       </div>
     </div>
 
-    <div class="layout">
-      <section class="panel" aria-label="Navegacion">
+    <div class="layout" id="sala-layout">
+      <section class="panel sala-left-panel" aria-label="Navegacion">
+        <div class="sala-left-expanded" id="sala-left-expanded">
+        <div class="sala-nav-head">
         <div class="main-tabs" role="tablist">
           <button type="button" class="main-tab active" data-main="video" role="tab" aria-selected="true">Video</button>
           <button type="button" class="main-tab" data-main="charts" role="tab" aria-selected="false">Gráficos</button>
+        </div>
+        <button
+          type="button"
+          class="sala-side-toggle"
+          id="sala-toggle-left-collapse"
+          title="Plegar panel de lista"
+          aria-label="Plegar panel de lista"
+          aria-expanded="true"
+        >◀</button>
         </div>
         <div id="left-pane-video" class="left-stack">
           <nav id="video-breadcrumb" class="video-breadcrumb" aria-label="Carpetas de videos"></nav>
@@ -470,6 +549,17 @@
             <div class="empty">Cargando partidos…</div>
           </div>
         </div>
+        </div>
+        <div class="sala-left-collapsed-bar" id="sala-left-collapsed-bar" hidden>
+          <button
+            type="button"
+            class="sala-side-toggle sala-side-toggle--open"
+            id="sala-toggle-left-open"
+            title="Mostrar panel de lista"
+            aria-label="Mostrar panel de lista"
+            aria-expanded="false"
+          >▶</button>
+        </div>
       </section>
 
       <section class="panel" aria-label="Contenido">
@@ -478,15 +568,28 @@
           <div class="player-wrap">
             <span class="status-pill">Analisis privado</span>
             <video id="player" controls playsinline preload="metadata"></video>
-            <div class="notes-box">
+            <div class="notes-box" id="sala-video-notes-box">
               <div class="notes-header">
+                <div class="notes-header-main">
                 <span class="notes-title">Analisis del video</span>
                 <span id="notes-meta" class="notes-meta"></span>
+                </div>
+                <button
+                  type="button"
+                  class="sala-notes-fold"
+                  id="sala-toggle-video-notes"
+                  title="Plegar análisis"
+                  aria-label="Plegar sección de análisis"
+                  aria-expanded="true"
+                  aria-controls="sala-video-notes-body"
+                >▲</button>
               </div>
+              <div id="sala-video-notes-body" class="notes-body">
               <div id="notes-text" class="notes-text">Selecciona un video para ver el analisis.</div>
               <textarea id="notes-editor" class="notes-editor" maxlength="5000" placeholder="Escribe aqui el analisis del video..."></textarea>
               <div id="notes-actions" class="notes-actions">
                 <button id="save-notes" class="btn btn-save" type="button">Guardar analisis</button>
+              </div>
               </div>
             </div>
           </div>
@@ -524,15 +627,28 @@
             </div>
             <div id="chart-pps" class="chart-box" aria-label="Gráfico de estadísticas"></div>
           </div>
-          <div class="notes-box chart-page-notes" id="game-chart-notes-wrap">
+          <div class="notes-box chart-page-notes" id="sala-game-chart-notes-box">
             <div class="notes-header">
+              <div class="notes-header-main">
               <span class="notes-title">Anotaciones</span>
               <span id="game-chart-notes-meta" class="notes-meta"></span>
+              </div>
+              <button
+                type="button"
+                class="sala-notes-fold"
+                id="sala-toggle-chart-notes"
+                title="Plegar anotaciones"
+                aria-label="Plegar sección de anotaciones"
+                aria-expanded="true"
+                aria-controls="sala-chart-notes-body"
+              >▲</button>
             </div>
+            <div id="sala-chart-notes-body" class="notes-body">
             <div id="game-chart-notes-text" class="notes-text">Selecciona un partido y una pestaña de gráfico.</div>
             <textarea id="game-chart-notes-editor" class="notes-editor" maxlength="5000" placeholder="Anotacion para este partido y este gráfico (FGA / PPS, eFG / TS o Anatomía)…" aria-label="Anotación del gráfico"></textarea>
             <div id="game-chart-notes-actions" class="notes-actions">
               <button id="save-game-chart-notes" class="btn btn-save" type="button">Guardar anotación</button>
+            </div>
             </div>
           </div>
           <p id="chart-empty" class="empty" style="display:none; margin-top:12px">No hay partidos. Coloca archivos .xml en la carpeta de Drive (compartida con la service account) y vuelve a abrir o recarga la lista.</p>
@@ -1369,6 +1485,7 @@
 
       window.__salaLoadGames = loadGameList;
       window.__salaSetMainTab = setMainTab;
+      window.__salaScheduleChartResize = scheduleChartResize;
     })();
   </script>
   <script>
@@ -1657,6 +1774,96 @@
       await fetch('/api/auth/logout', { method: 'POST' });
       location.replace('/login');
     });
+
+    (function initSalaLayoutToggles() {
+      const layoutEl = document.getElementById('sala-layout');
+      const leftExpandedEl = document.getElementById('sala-left-expanded');
+      const leftBarEl = document.getElementById('sala-left-collapsed-bar');
+      const leftCollapseBtn = document.getElementById('sala-toggle-left-collapse');
+      const leftOpenBtn = document.getElementById('sala-toggle-left-open');
+      const videoNotesBox = document.getElementById('sala-video-notes-box');
+      const videoNotesToggle = document.getElementById('sala-toggle-video-notes');
+      const chartNotesBox = document.getElementById('sala-game-chart-notes-box');
+      const chartNotesToggle = document.getElementById('sala-toggle-chart-notes');
+      const K_LEFT = 'sala.ui.leftCollapsed';
+      const K_VN = 'sala.ui.videoNotesCollapsed';
+      const K_CN = 'sala.ui.chartNotesCollapsed';
+      function readBool(key) {
+        try {
+          return localStorage.getItem(key) === '1';
+        } catch (e) {
+          return false;
+        }
+      }
+      function writeBool(key, v) {
+        try {
+          localStorage.setItem(key, v ? '1' : '0');
+        } catch (e) {}
+      }
+      function scheduleChartIfAny() {
+        if (typeof window.__salaScheduleChartResize === 'function') {
+          window.__salaScheduleChartResize();
+        }
+      }
+      function setLeftCollapsed(on) {
+        if (!layoutEl) return;
+        layoutEl.classList.toggle('layout--left-collapsed', on);
+        if (leftExpandedEl) leftExpandedEl.hidden = on;
+        if (leftBarEl) leftBarEl.hidden = !on;
+        if (leftCollapseBtn) {
+          leftCollapseBtn.setAttribute('aria-expanded', on ? 'false' : 'true');
+        }
+        if (leftOpenBtn) {
+          leftOpenBtn.setAttribute('aria-expanded', on ? 'false' : 'true');
+        }
+        writeBool(K_LEFT, on);
+        scheduleChartIfAny();
+      }
+      function setVideoNotesCollapsed(on) {
+        if (!videoNotesBox || !videoNotesToggle) return;
+        videoNotesBox.classList.toggle('notes--collapsed', on);
+        videoNotesToggle.setAttribute('aria-expanded', on ? 'false' : 'true');
+        videoNotesToggle.textContent = on ? '▼' : '▲';
+        videoNotesToggle.title = on ? 'Desplegar análisis' : 'Plegar análisis';
+        videoNotesToggle.setAttribute(
+          'aria-label',
+          on ? 'Desplegar sección de análisis' : 'Plegar sección de análisis'
+        );
+        writeBool(K_VN, on);
+      }
+      function setChartNotesCollapsed(on) {
+        if (!chartNotesBox || !chartNotesToggle) return;
+        chartNotesBox.classList.toggle('notes--collapsed', on);
+        chartNotesToggle.setAttribute('aria-expanded', on ? 'false' : 'true');
+        chartNotesToggle.textContent = on ? '▼' : '▲';
+        chartNotesToggle.title = on ? 'Desplegar anotaciones' : 'Plegar anotaciones';
+        chartNotesToggle.setAttribute(
+          'aria-label',
+          on ? 'Desplegar sección de anotaciones' : 'Plegar sección de anotaciones'
+        );
+        writeBool(K_CN, on);
+        scheduleChartIfAny();
+      }
+      if (leftCollapseBtn) {
+        leftCollapseBtn.addEventListener('click', () => setLeftCollapsed(true));
+      }
+      if (leftOpenBtn) {
+        leftOpenBtn.addEventListener('click', () => setLeftCollapsed(false));
+      }
+      if (videoNotesToggle && videoNotesBox) {
+        videoNotesToggle.addEventListener('click', () => {
+          setVideoNotesCollapsed(!videoNotesBox.classList.contains('notes--collapsed'));
+        });
+      }
+      if (chartNotesToggle && chartNotesBox) {
+        chartNotesToggle.addEventListener('click', () => {
+          setChartNotesCollapsed(!chartNotesBox.classList.contains('notes--collapsed'));
+        });
+      }
+      setLeftCollapsed(readBool(K_LEFT));
+      setVideoNotesCollapsed(readBool(K_VN));
+      setChartNotesCollapsed(readBool(K_CN));
+    })();
 
     (async () => {
       const ok = await checkSession();
