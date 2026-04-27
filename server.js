@@ -484,10 +484,12 @@ app.get('/auth/logout', requireAdmin, requirePublishEnabled, (req, res) => {
 
 // Config para el frontend (carpeta por defecto)
 const DEFAULT_FOLDER = process.env.DEFAULT_DRIVE_FOLDER_ID || '1y6rIQTNtqeRaq-z8Vw8kaWFvy_2moRtD';
-/** Carpeta raíz de vídeos en la Sala (lista + subcarpetas). Sobreescribe con PRIVATE_VIEWER_DRIVE_FOLDER_ID. */
-const PRIVATE_VIEWER_FOLDER = (
-  process.env.PRIVATE_VIEWER_DRIVE_FOLDER_ID || '1vARtPfaS6Txu_u9hLwjqLmdjrakLnW_L'
-).trim();
+/**
+ * Única carpeta de vídeos de la Sala (y subcarpetas). No se usa otra ruta de Drive para listar/reproducir.
+ * https://drive.google.com/drive/folders/1vARtPfaS6Txu_u9hLwjqLmdjrakLnW_L
+ */
+const VIDEO_SALA_ROOT_FOLDER_ID = '1vARtPfaS6Txu_u9hLwjqLmdjrakLnW_L';
+const PRIVATE_VIEWER_FOLDER = VIDEO_SALA_ROOT_FOLDER_ID;
 /** Carpeta donde vive video_notes.json (si no se define, usa la misma que los vídeos). Útil si los vídeos solo pueden ser “lector” pero quieres otra carpeta con permiso de editor para la SA. */
 const PRIVATE_NOTES_FOLDER = process.env.VIDEO_NOTES_DRIVE_FOLDER_ID || PRIVATE_VIEWER_FOLDER;
 const NOTES_FILE_NAME = process.env.VIDEO_NOTES_FILE_NAME || 'video_notes.json';
@@ -698,6 +700,45 @@ app.get('/api/drive/files', requireAdmin, requirePublishEnabled, async (req, res
 });
 
 /**
+ * Comprueba que un archivo o carpeta de Drive cuelga de VIDEO_SALA_ROOT_FOLDER_ID (ancestros hasta la raíz).
+ */
+async function isUnderVideoSalaRoot(drive, itemId, rootId = VIDEO_SALA_ROOT_FOLDER_ID) {
+  if (!itemId || !rootId || !/^[\w-]+$/.test(String(itemId))) return false;
+  let cur = itemId;
+  const seen = new Set();
+  for (let d = 0; d < 60 && cur; d++) {
+    if (cur === rootId) return true;
+    if (seen.has(cur)) return false;
+    seen.add(cur);
+    const got = await drive.files
+      .get({
+        fileId: cur,
+        fields: 'parents',
+        supportsAllDrives: true
+      })
+      .catch(() => null);
+    const parents = got?.data?.parents || [];
+    if (!parents.length) return false;
+    cur = parents[0];
+  }
+  return false;
+}
+
+async function assertSalaVideoFileId(drive, fileId) {
+  if (!fileId || !/^[\w-]+$/.test(String(fileId))) return false;
+  const got = await drive.files
+    .get({
+      fileId,
+      fields: 'mimeType, trashed',
+      supportsAllDrives: true
+    })
+    .catch(() => null);
+  const mime = got?.data?.mimeType;
+  if (!mime || !String(mime).startsWith('video/') || got?.data?.trashed === true) return false;
+  return isUnderVideoSalaRoot(drive, fileId, VIDEO_SALA_ROOT_FOLDER_ID);
+}
+
+/**
  * Ruta de migas desde folderId hasta rootId (inclusive). Máximo ~30 niveles.
  */
 async function buildVideoFolderBreadcrumbs(drive, folderId, rootId) {
@@ -747,6 +788,10 @@ app.get('/api/private/videos', requireAuth, async (req, res) => {
   }
   try {
     const drive = google.drive({ version: 'v3', auth });
+    const allowedFolder = await isUnderVideoSalaRoot(drive, parentId, VIDEO_SALA_ROOT_FOLDER_ID);
+    if (!allowedFolder) {
+      return res.status(403).json({ error: 'Solo se permite acceder a la carpeta Videos de la sala y sus subcarpetas.' });
+    }
     const { data } = await drive.files.list({
       q: `'${parentId}' in parents and trashed = false`,
       fields: 'files(id, name, mimeType, size, modifiedTime)',
@@ -786,7 +831,7 @@ app.get('/api/private/videos', requireAuth, async (req, res) => {
     const parentFolderId = parents[0] || null;
 
     res.json({
-      rootFolderId: PRIVATE_VIEWER_FOLDER,
+      rootFolderId: VIDEO_SALA_ROOT_FOLDER_ID,
       folderId: parentId,
       folderName: folderMeta.data.name || 'Videos',
       parentFolderId,
@@ -819,6 +864,9 @@ app.get('/api/private/videos/:id/stream', requireAuth, async (req, res) => {
   try {
     const drive = google.drive({ version: 'v3', auth });
     const fileId = req.params.id;
+    if (!(await assertSalaVideoFileId(drive, fileId))) {
+      return res.status(403).json({ error: 'Video no disponible en la carpeta de la sala.' });
+    }
     const range = req.headers.range;
     const requestConfig = {
       responseType: 'stream',
@@ -874,6 +922,9 @@ app.get('/api/private/videos/:id/notes', requireAuth, async (req, res) => {
   if (!auth) return res.status(503).json({ error: 'Service Account no configurado para notas' });
   try {
     const drive = google.drive({ version: 'v3', auth });
+    if (!(await assertSalaVideoFileId(drive, req.params.id))) {
+      return res.status(403).json({ error: 'Video no disponible en la carpeta de la sala.' });
+    }
     const notes = await loadVideoNotes(drive);
     const note = notes[req.params.id] || {};
     res.json({
@@ -904,6 +955,9 @@ app.put('/api/private/videos/:id/notes', requireAdmin, async (req, res) => {
   }
   try {
     const drive = google.drive({ version: 'v3', auth });
+    if (!(await assertSalaVideoFileId(drive, req.params.id))) {
+      return res.status(403).json({ error: 'Video no disponible en la carpeta de la sala.' });
+    }
     const notes = await loadVideoNotes(drive);
     notes[req.params.id] = {
       text,
