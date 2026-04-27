@@ -656,8 +656,22 @@
           }
           void loadGameChartNotes();
         }
-        if (id === 'charts' && ppsChart) {
-          requestAnimationFrame(() => ppsChart.resize());
+        if (id === 'charts') {
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              if (ppsChart) {
+                ppsChart.resize();
+                if (lastStatsPayload) {
+                  ppsChart.setOption(buildChartOption(lastStatsPayload), true);
+                }
+              } else if (gamesData.length) {
+                const g =
+                  gamesData.find((x) => x.id === (window.__salaSelectedGameId || gamesData[0].id)) || gamesData[0];
+                if (getChartDataScope() === 'aggregate') void loadAggregateChart();
+                else if (g) void loadChart(g.id, g.title);
+              }
+            });
+          });
         }
       }
       mainTabs.forEach((b) => b.addEventListener('click', () => setMainTab(b.dataset.main)));
@@ -1640,8 +1654,16 @@
     (async () => {
       const ok = await checkSession();
       if (!ok) return;
-      await loadVideos();
-      if (window.__salaLoadGames) await window.__salaLoadGames();
+      const loadGames =
+        typeof window.__salaLoadGames === 'function'
+          ? window.__salaLoadGames().catch((err) => {
+              console.error('[sala] loadGameList', err);
+            })
+          : Promise.resolve();
+      const loadV = loadVideos().catch((err) => {
+        console.error('[sala] loadVideos', err);
+      });
+      await Promise.all([loadGames, loadV]);
     })();
   </script>
 </body>
