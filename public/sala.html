@@ -70,7 +70,7 @@
       gap: 18px;
     }
     .layout--left-collapsed { grid-template-columns: 40px 1fr; }
-    .sala-left-panel { display: flex; flex-direction: column; }
+    .sala-left-panel { display: flex; flex-direction: column; min-height: 0; }
     .sala-nav-head {
       display: flex;
       align-items: stretch;
@@ -114,16 +114,20 @@
       display: none !important;
     }
     .sala-left-collapsed-bar {
-      flex: 0 0 auto;
+      flex: 1 1 auto;
       display: flex;
       flex-direction: column;
       align-items: stretch;
       justify-content: flex-start;
       align-self: stretch;
+      min-height: 0;
       padding: 5px 4px 6px;
+      box-sizing: border-box;
+      background: var(--lakers-black);
     }
     .sala-left-toggle-slot--end { flex-shrink: 0; }
     #sala-left-rail-toggle-slot { width: 100%; }
+    .sala-left-rail { width: 100%; }
     .sala-left-collapsed-bar .sala-panel-icon-btn,
     #sala-left-rail-toggle-slot .sala-panel-icon-btn {
       width: 100%;
@@ -134,11 +138,15 @@
       background: rgba(8, 6, 16, 0.78);
     }
     .layout--left-collapsed .sala-left-panel {
-      min-height: auto;
-      align-self: start;
+      min-height: 0;
+      align-self: stretch;
       min-width: 0;
       overflow: hidden;
+      /* Fondo opaco: tapa listas/gradiente del panel; sin bleed en columna estrecha */
+      background: var(--lakers-black) !important;
+      background-image: none !important;
     }
+    .layout--left-collapsed { align-items: stretch; }
     .sala-notes-fold {
       flex-shrink: 0;
       align-self: flex-start;
@@ -519,11 +527,13 @@
       .layout { grid-template-columns: 1fr; }
       .layout--left-collapsed { grid-template-columns: 1fr; }
       .layout--left-collapsed .sala-left-panel {
-        min-height: auto;
+        min-height: 0;
         max-height: none;
-        overflow: visible;
-        align-self: start;
+        align-self: stretch;
         width: 100%;
+        overflow: hidden;
+        background: var(--lakers-black) !important;
+        background-image: none !important;
       }
       .layout--left-collapsed .sala-left-collapsed-bar { padding: 6px 8px 8px; }
       .brand-title { font-size: 22px; }
