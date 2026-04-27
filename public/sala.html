@@ -213,42 +213,7 @@
       position: relative;
       background: radial-gradient(circle at 50% 0%, rgba(253, 185, 39, 0.08), transparent 40%);
     }
-    .video-nav-bar {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 14px;
-      margin: 0 0 10px;
-    }
-    .sala-vid-nav-btn {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      width: 44px;
-      height: 44px;
-      padding: 0;
-      box-sizing: border-box;
-      border-radius: 10px;
-      border: 1px solid rgba(253, 185, 39, 0.28);
-      background: rgba(8, 6, 16, 0.78);
-      color: var(--lakers-gold);
-      cursor: pointer;
-      transition: background 0.15s, border-color 0.15s, color 0.15s, opacity 0.15s;
-    }
-    .sala-vid-nav-btn:hover:not(:disabled) {
-      background: rgba(85, 37, 131, 0.4);
-      border-color: rgba(253, 185, 39, 0.45);
-      color: var(--text-primary);
-    }
-    .sala-vid-nav-btn:focus-visible {
-      outline: none;
-      box-shadow: 0 0 0 2px rgba(253, 185, 39, 0.35);
-    }
-    .sala-vid-nav-btn:disabled {
-      opacity: 0.32;
-      cursor: not-allowed;
-    }
-    .sala-vid-nav-btn .sala-ico { display: block; }
+    video {
       width: 100%;
       max-height: 72vh;
       background: #000;
@@ -287,19 +252,10 @@
     .video-speed-select:hover { border-color: rgba(253, 185, 39, 0.5); }
     .video-speed-select:focus { outline: none; border-color: var(--lakers-gold); }
     .video-speed-hint {
-      box-sizing: border-box;
-      flex: 1 1 100%;
-      margin: 0;
-      padding: 0;
       font-size: 11px;
-      line-height: 1.4;
-      /* Misma reserva de altura que el párrafo informativo (~2 líneas) sin mostrar texto */
-      min-height: 2.8em;
-      max-height: 2.8em;
-      overflow: hidden;
-      opacity: 0;
-      pointer-events: none;
-      user-select: none;
+      color: var(--text-secondary);
+      margin: 0;
+      flex: 1 1 100%;
     }
     .notes-box {
       margin-top: 14px;
@@ -677,16 +633,8 @@
         <h2 id="right-heading">Selecciona un video</h2>
         <div id="right-stack-video" class="right-stack">
           <div class="player-wrap">
-            <div class="video-nav-bar" role="group" aria-label="Vídeo anterior o siguiente en la carpeta">
-              <button type="button" class="sala-vid-nav-btn" id="sala-vid-prev" title="Vídeo anterior" aria-label="Vídeo anterior" disabled>
-                <svg class="sala-ico" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
-              </button>
-              <button type="button" class="sala-vid-nav-btn" id="sala-vid-next" title="Vídeo siguiente" aria-label="Vídeo siguiente" disabled>
-                <svg class="sala-ico" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg>
-              </button>
-            </div>
             <video id="player" controls playsinline preload="metadata"></video>
-            <div class="video-speed-bar" id="player-speed-wrap" aria-label="Velocidad de reproducción">
+            <div class="video-speed-bar" id="player-speed-wrap" aria-label="Ajuste de carga y velocidad">
               <span class="video-speed-label" id="player-speed-label">Velocidad</span>
               <select id="sala-playback-rate" class="video-speed-select" title="Velocidad de reproducción" aria-label="Velocidad de reproducción">
                 <option value="0.5">0,5×</option>
@@ -696,7 +644,7 @@
                 <option value="1.5">1,5×</option>
                 <option value="2">2×</option>
               </select>
-              <p class="video-speed-hint" id="player-preload-hint" aria-hidden="true"></p>
+              <p class="video-speed-hint" id="player-preload-hint">Más buffer al abrir un clip. La fluidez depende de la red y del enlace a Drive.</p>
             </div>
             <div class="notes-box" id="sala-video-notes-box">
               <div class="notes-header">
@@ -1779,34 +1727,9 @@
       return true;
     }
 
-    const btnVidPrev = document.getElementById('sala-vid-prev');
-    const btnVidNext = document.getElementById('sala-vid-next');
-    function getOrderedVideoPaneVideos() {
-      return sortVideoPaneVideos(videosData, listSort);
-    }
-    function updateVideoNavState() {
-      const list = getOrderedVideoPaneVideos();
-      const n = list.length;
-      if (!btnVidPrev || !btnVidNext) return;
-      if (!n || !currentVideoId) {
-        btnVidPrev.disabled = true;
-        btnVidNext.disabled = true;
-        return;
-      }
-      const i = list.findIndex((v) => v.id === currentVideoId);
-      if (i < 0) {
-        btnVidPrev.disabled = true;
-        btnVidNext.disabled = true;
-        return;
-      }
-      btnVidPrev.disabled = i <= 0;
-      btnVidNext.disabled = i >= n - 1;
-    }
-
     function renderList() {
       if (!videosData.length && !videoSubfoldersData.length) {
         listEl.innerHTML = '<div class="empty">No hay carpetas ni videos en esta ubicación.</div>';
-        updateVideoNavState();
         return;
       }
       const subfolders = sortVideoPaneSubfolders(videoSubfoldersData, listSort);
@@ -1834,7 +1757,6 @@
         )
         .join('');
       listEl.innerHTML = folderRows + videoRows;
-      updateVideoNavState();
     }
 
     async function loadNotes(videoId) {
@@ -1873,30 +1795,6 @@
       player.addEventListener('loadedmetadata', fixRate);
       if (listEl) listEl.querySelectorAll('button.item').forEach((btn) => btn.classList.toggle('active', btn.dataset.id === id));
       await loadNotes(id);
-      updateVideoNavState();
-    }
-
-    function playNextVideo() {
-      const list = getOrderedVideoPaneVideos();
-      const i = list.findIndex((v) => v.id === currentVideoId);
-      if (i >= 0 && i < list.length - 1) {
-        const v = list[i + 1];
-        void playVideo(v.id, v.title);
-      }
-    }
-    function playPreviousVideo() {
-      const list = getOrderedVideoPaneVideos();
-      const i = list.findIndex((v) => v.id === currentVideoId);
-      if (i > 0) {
-        const v = list[i - 1];
-        void playVideo(v.id, v.title);
-      }
-    }
-    if (btnVidPrev) {
-      btnVidPrev.addEventListener('click', () => playPreviousVideo());
-    }
-    if (btnVidNext) {
-      btnVidNext.addEventListener('click', () => playNextVideo());
     }
 
     async function loadVideos(folderId) {
@@ -1907,13 +1805,11 @@
         listEl.innerHTML = `<div class="empty">${data.error || 'No se pudieron cargar los videos.'}</div>`;
         if (videoBreadcrumbEl) videoBreadcrumbEl.innerHTML = '';
         currentSalaListFolderId = null;
-        currentVideoId = null;
         try {
           sessionStorage.removeItem('sala_list_folder');
         } catch (e) {
           /* ignore */
         }
-        updateVideoNavState();
         return;
       }
       currentSalaListFolderId = data.folderId || null;
