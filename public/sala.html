@@ -1807,11 +1807,13 @@
     }
 
     async function loadNotes(videoId) {
+      if (String(currentVideoId) !== String(videoId)) return;
       notesMeta.textContent = 'Cargando analisis...';
       const resp = await fetch(
         `/api/private/videos/${encodeURIComponent(videoId)}/notes${privateVideoQuerySuffix()}`
       );
       const data = await resp.json().catch(() => ({}));
+      if (String(currentVideoId) !== String(videoId)) return;
       if (!resp.ok) {
         notesMeta.textContent = '';
         notesText.textContent = data.error || 'No se pudo cargar el analisis.';
@@ -1828,6 +1830,7 @@
 
     async function playVideo(id, title) {
       currentVideoId = id;
+      syncPlayerPlaceholder();
       const label = title || 'Reproduciendo';
       window.__salaCurrentVideoTitle = label;
       if (rightHeading) rightHeading.textContent = label;
@@ -1841,8 +1844,7 @@
       };
       player.addEventListener('loadedmetadata', fixRate);
       if (listEl) listEl.querySelectorAll('button.item').forEach((btn) => btn.classList.toggle('active', btn.dataset.id === id));
-      await loadNotes(id);
-      syncPlayerPlaceholder();
+      void loadNotes(id);
     }
 
     async function loadVideos(folderId) {
