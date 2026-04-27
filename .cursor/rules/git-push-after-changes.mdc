@@ -9,6 +9,6 @@ Si en esta conversación se **editan, crean o borran** archivos en el repositori
 
 1. `git add` de los archivos afectados (o `git add -A` si aplica a todo el cambio de la tarea).
 2. `git commit` con un mensaje claro en español (o inglés, coherente con el histórico del repo) que resuma el cambio.
-3. `git push` a `origin` (rama actual, en general `main`).
+3. **Inmediatamente después** de un `commit` exitoso, `git push` a `origin` (rama actual, en general `main`). No cierres la tarea sin push si ya hay commit, salvo que el usuario pida no subir o el push falle (entonces indica el error).
 
-No dejes cambios locales sin subir al final de la tarea, salvo que el usuario pida explícitamente no hacer push. Si el push falla, informa y sugiere revisar red o credenciales.
+No dejes un commit local sin publicar a GitHub a propósito. Si el push falla, informa y sugiere revisar red o credenciales.
