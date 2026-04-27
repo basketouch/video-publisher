@@ -1380,8 +1380,15 @@
     if (sortSelect) sortSelect.value = listSort;
     let videosData = [];
     let videoSubfoldersData = [];
+    let currentSalaListFolderId = null;
     let currentRole = null;
     let currentVideoId = null;
+
+    function privateVideoQuerySuffix() {
+      return currentSalaListFolderId
+        ? `?folder=${encodeURIComponent(currentSalaListFolderId)}`
+        : '';
+    }
 
     function sortVideoPaneSubfolders(arr, mode) {
       const out = (arr || []).slice();
@@ -1493,7 +1500,9 @@
 
     async function loadNotes(videoId) {
       notesMeta.textContent = 'Cargando analisis...';
-      const resp = await fetch(`/api/private/videos/${encodeURIComponent(videoId)}/notes`);
+      const resp = await fetch(
+        `/api/private/videos/${encodeURIComponent(videoId)}/notes${privateVideoQuerySuffix()}`
+      );
       const data = await resp.json().catch(() => ({}));
       if (!resp.ok) {
         notesMeta.textContent = '';
@@ -1514,7 +1523,7 @@
       const label = title || 'Reproduciendo';
       window.__salaCurrentVideoTitle = label;
       if (rightHeading) rightHeading.textContent = label;
-      player.src = `/api/private/videos/${encodeURIComponent(id)}/stream`;
+      player.src = `/api/private/videos/${encodeURIComponent(id)}/stream${privateVideoQuerySuffix()}`;
       player.play().catch(() => {});
       if (listEl) listEl.querySelectorAll('button.item').forEach((btn) => btn.classList.toggle('active', btn.dataset.id === id));
       await loadNotes(id);
@@ -1527,8 +1536,10 @@
       if (!resp.ok) {
         listEl.innerHTML = `<div class="empty">${data.error || 'No se pudieron cargar los videos.'}</div>`;
         if (videoBreadcrumbEl) videoBreadcrumbEl.innerHTML = '';
+        currentSalaListFolderId = null;
         return;
       }
+      currentSalaListFolderId = data.folderId || null;
       videoSubfoldersData = data.subfolders || [];
       renderVideoBreadcrumbs(data.breadcrumbs || []);
       videosData = data.videos || [];
@@ -1581,11 +1592,14 @@
       const text = notesEditor.value.trim();
       saveNotesBtn.disabled = true;
       saveNotesBtn.textContent = 'Guardando...';
-      const resp = await fetch(`/api/private/videos/${encodeURIComponent(currentVideoId)}/notes`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text })
-      });
+      const resp = await fetch(
+        `/api/private/videos/${encodeURIComponent(currentVideoId)}/notes${privateVideoQuerySuffix()}`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text })
+        }
+      );
       const data = await resp.json().catch(() => ({}));
       saveNotesBtn.disabled = false;
       saveNotesBtn.textContent = 'Guardar analisis';

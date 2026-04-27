@@ -871,8 +871,49 @@ async function assertFolderInSalaVideoTree(drive, folderId) {
   return folderIsUnderRootByListing(drive, folderId, root);
 }
 
-async function assertSalaVideoFileId(drive, fileId) {
+/**
+ * Comprueba si el archivo es hijo directo de listFolder (listado paginado) y la carpeta está en el árbol.
+ * Resuelve unidades compartidas donde `parents` en files.get no incluye al padre real.
+ */
+async function fileIsListingChildOfSalaFolder(drive, fileId, listFolderId) {
+  if (!fileId || !listFolderId || !/^[-a-zA-Z0-9_]+$/.test(String(fileId))) return false;
+  if (!/^[-a-zA-Z0-9_]+$/.test(String(listFolderId))) return false;
+  if (!(await assertFolderInSalaVideoTree(drive, listFolderId))) return false;
+  let pageToken;
+  try {
+    do {
+      const res = await drive.files.list({
+        q: `'${listFolderId}' in parents and trashed = false`,
+        fields: 'nextPageToken, files(id, mimeType, name)',
+        pageSize: 200,
+        pageToken,
+        supportsAllDrives: true,
+        includeItemsFromAllDrives: true
+      });
+      for (const f of res.data.files || []) {
+        if (f && f.id === fileId && listingEntryLooksLikeSalaVideo(f)) return true;
+      }
+      pageToken = res.data.nextPageToken;
+    } while (pageToken);
+  } catch (e) {
+    console.warn('[videos] fileIsListingChildOfSalaFolder', listFolderId, e.message);
+  }
+  return false;
+}
+
+function salaListFolderFromQuery(req) {
+  const v = req.query && typeof req.query.folder === 'string' ? req.query.folder.trim() : '';
+  if (!v || !/^[-a-zA-Z0-9_]+$/.test(v)) return null;
+  return v;
+}
+
+async function assertSalaVideoFileId(drive, fileId, listFolderId) {
   if (!fileId || !/^[-a-zA-Z0-9_]+$/.test(String(fileId))) return false;
+  const listFolder =
+    listFolderId && String(listFolderId).trim() && /^[-a-zA-Z0-9_]+$/.test(String(listFolderId).trim())
+      ? String(listFolderId).trim()
+      : null;
+
   const got = await drive.files
     .get({
       fileId,
@@ -886,17 +927,27 @@ async function assertSalaVideoFileId(drive, fileId) {
   const m = got.data.mimeType;
   const n = got.data.name;
   const plausible = isPlausibleVideoFile(m, n) || looksLikeVideoFilename(n);
-
   const root = VIDEO_SALA_ROOT_FOLDER_ID;
-  if (plausible) {
-    if (await isUnderVideoSalaRoot(drive, fileId, root)) return true;
-    for (const p of got.data.parents || []) {
-      const pid = String(p || '').trim();
-      if (pid === root) return true;
-      if (await folderIsUnderRootByListing(drive, pid, root)) return true;
+
+  if (listFolder) {
+    const par = (got.data.parents || []).map((p) => String(p || '').trim());
+    if (par.includes(listFolder) && (await assertFolderInSalaVideoTree(drive, listFolder)) && plausible) {
+      return true;
     }
+    if (await fileIsListingChildOfSalaFolder(drive, fileId, listFolder)) {
+      return true;
+    }
+  }
+
+  if (!plausible) {
     if (await videoFileIsUnderRootByListing(drive, fileId, root)) return true;
     return false;
+  }
+  if (await isUnderVideoSalaRoot(drive, fileId, root)) return true;
+  for (const p of got.data.parents || []) {
+    const pid = String(p || '').trim();
+    if (pid === root) return true;
+    if (await folderIsUnderRootByListing(drive, pid, root)) return true;
   }
   if (await videoFileIsUnderRootByListing(drive, fileId, root)) return true;
   return false;
@@ -960,14 +1011,20 @@ app.get('/api/private/videos', requireAuth, async (req, res) => {
       });
       return res.status(403).json({ error: 'Solo se permite acceder a la carpeta Videos de la sala y sus subcarpetas.' });
     }
-    const { data } = await drive.files.list({
-      q: `'${parentId}' in parents and trashed = false`,
-      fields: 'files(id, name, mimeType, size, modifiedTime)',
-      pageSize: 200,
-      supportsAllDrives: true,
-      includeItemsFromAllDrives: true
-    });
-    const files = data.files || [];
+    const files = [];
+    let listPage;
+    do {
+      const { data } = await drive.files.list({
+        q: `'${parentId}' in parents and trashed = false`,
+        fields: 'nextPageToken, files(id, name, mimeType, size, modifiedTime)',
+        pageSize: 200,
+        pageToken: listPage,
+        supportsAllDrives: true,
+        includeItemsFromAllDrives: true
+      });
+      files.push(...(data.files || []));
+      listPage = data.nextPageToken;
+    } while (listPage);
     const subfolders = files
       .filter((f) => f.mimeType === 'application/vnd.google-apps.folder')
       .map((f) => ({ id: f.id, name: f.name, modifiedTime: f.modifiedTime || null }));
@@ -1035,7 +1092,8 @@ app.get('/api/private/videos/:id/stream', requireAuth, async (req, res) => {
   try {
     const drive = google.drive({ version: 'v3', auth });
     const fileId = req.params.id;
-    if (!(await assertSalaVideoFileId(drive, fileId))) {
+    const listFolder = salaListFolderFromQuery(req);
+    if (!(await assertSalaVideoFileId(drive, fileId, listFolder))) {
       return res.status(403).json({ error: 'Video no disponible en la carpeta de la sala.' });
     }
     const range = req.headers.range;
@@ -1093,7 +1151,7 @@ app.get('/api/private/videos/:id/notes', requireAuth, async (req, res) => {
   if (!auth) return res.status(503).json({ error: 'Service Account no configurado para notas' });
   try {
     const drive = google.drive({ version: 'v3', auth });
-    if (!(await assertSalaVideoFileId(drive, req.params.id))) {
+    if (!(await assertSalaVideoFileId(drive, req.params.id, salaListFolderFromQuery(req)))) {
       return res.status(403).json({ error: 'Video no disponible en la carpeta de la sala.' });
     }
     const notes = await loadVideoNotes(drive);
@@ -1126,7 +1184,7 @@ app.put('/api/private/videos/:id/notes', requireAdmin, async (req, res) => {
   }
   try {
     const drive = google.drive({ version: 'v3', auth });
-    if (!(await assertSalaVideoFileId(drive, req.params.id))) {
+    if (!(await assertSalaVideoFileId(drive, req.params.id, salaListFolderFromQuery(req)))) {
       return res.status(403).json({ error: 'Video no disponible en la carpeta de la sala.' });
     }
     const notes = await loadVideoNotes(drive);
