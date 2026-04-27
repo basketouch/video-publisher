@@ -1385,9 +1385,17 @@
     let currentVideoId = null;
 
     function privateVideoQuerySuffix() {
-      return currentSalaListFolderId
-        ? `?folder=${encodeURIComponent(currentSalaListFolderId)}`
-        : '';
+      const folderId =
+        currentSalaListFolderId ||
+        (() => {
+          try {
+            return sessionStorage.getItem('sala_list_folder') || '';
+          } catch (e) {
+            return '';
+          }
+        })();
+      if (!folderId) return '';
+      return `?folder=${encodeURIComponent(folderId)}`;
     }
 
     function sortVideoPaneSubfolders(arr, mode) {
@@ -1537,9 +1545,19 @@
         listEl.innerHTML = `<div class="empty">${data.error || 'No se pudieron cargar los videos.'}</div>`;
         if (videoBreadcrumbEl) videoBreadcrumbEl.innerHTML = '';
         currentSalaListFolderId = null;
+        try {
+          sessionStorage.removeItem('sala_list_folder');
+        } catch (e) {
+          /* ignore */
+        }
         return;
       }
       currentSalaListFolderId = data.folderId || null;
+      try {
+        if (data.folderId) sessionStorage.setItem('sala_list_folder', data.folderId);
+      } catch (e) {
+        /* ignore */
+      }
       videoSubfoldersData = data.subfolders || [];
       renderVideoBreadcrumbs(data.breadcrumbs || []);
       videosData = data.videos || [];

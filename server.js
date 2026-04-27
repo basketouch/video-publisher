@@ -907,6 +907,38 @@ function salaListFolderFromQuery(req) {
   return v;
 }
 
+const SALA_LIST_FOLDER_COOKIE = 'sala_list_folder';
+
+function parseSalaListFolderCookie(req) {
+  const raw = req.headers && req.headers.cookie;
+  if (!raw || typeof raw !== 'string') return null;
+  const m = raw.match(/(?:^|;\s*)sala_list_folder=([^;]+)/);
+  if (!m) return null;
+  let v;
+  try {
+    v = decodeURIComponent(m[1].trim());
+  } catch {
+    return null;
+  }
+  if (!v || !/^[-a-zA-Z0-9_]+$/.test(v)) return null;
+  return v;
+}
+
+/** Carpeta en la que el usuario acaba de listar (query ?folder= o cookie de la última lista). */
+function salaListFolderHint(req) {
+  return salaListFolderFromQuery(req) || parseSalaListFolderCookie(req);
+}
+
+function setSalaListFolderCookie(res, folderId) {
+  if (!folderId || !/^[-a-zA-Z0-9_]+$/.test(String(folderId))) return;
+  const val = encodeURIComponent(String(folderId));
+  const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+  res.append(
+    'Set-Cookie',
+    `${SALA_LIST_FOLDER_COOKIE}=${val}; Path=/; Max-Age=86400; HttpOnly; SameSite=Lax${secure}`
+  );
+}
+
 async function assertSalaVideoFileId(drive, fileId, listFolderId) {
   if (!fileId || !/^[-a-zA-Z0-9_]+$/.test(String(fileId))) return false;
   const listFolder =
@@ -1059,6 +1091,8 @@ app.get('/api/private/videos', requireAuth, async (req, res) => {
     const parents = folderMeta.data.parents || [];
     const parentFolderId = parents[0] || null;
 
+    setSalaListFolderCookie(res, parentId);
+
     res.json({
       rootFolderId: VIDEO_SALA_ROOT_FOLDER_ID,
       folderId: parentId,
@@ -1093,7 +1127,7 @@ app.get('/api/private/videos/:id/stream', requireAuth, async (req, res) => {
   try {
     const drive = google.drive({ version: 'v3', auth });
     const fileId = req.params.id;
-    const listFolder = salaListFolderFromQuery(req);
+    const listFolder = salaListFolderHint(req);
     if (!(await assertSalaVideoFileId(drive, fileId, listFolder))) {
       return res.status(403).json({ error: 'Video no disponible en la carpeta de la sala.' });
     }
@@ -1152,7 +1186,7 @@ app.get('/api/private/videos/:id/notes', requireAuth, async (req, res) => {
   if (!auth) return res.status(503).json({ error: 'Service Account no configurado para notas' });
   try {
     const drive = google.drive({ version: 'v3', auth });
-    if (!(await assertSalaVideoFileId(drive, req.params.id, salaListFolderFromQuery(req)))) {
+    if (!(await assertSalaVideoFileId(drive, req.params.id, salaListFolderHint(req)))) {
       return res.status(403).json({ error: 'Video no disponible en la carpeta de la sala.' });
     }
     const notes = await loadVideoNotes(drive);
@@ -1185,7 +1219,7 @@ app.put('/api/private/videos/:id/notes', requireAdmin, async (req, res) => {
   }
   try {
     const drive = google.drive({ version: 'v3', auth });
-    if (!(await assertSalaVideoFileId(drive, req.params.id, salaListFolderFromQuery(req)))) {
+    if (!(await assertSalaVideoFileId(drive, req.params.id, salaListFolderHint(req)))) {
       return res.status(403).json({ error: 'Video no disponible en la carpeta de la sala.' });
     }
     const notes = await loadVideoNotes(drive);
