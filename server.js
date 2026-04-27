@@ -699,6 +699,13 @@ app.get('/api/drive/files', requireAdmin, requirePublishEnabled, async (req, res
   }
 });
 
+function listingChildMatchesVideoFile(f, targetFileId) {
+  if (!f?.id || f.id !== targetFileId) return false;
+  if (f.mimeType === 'application/vnd.google-apps.folder') return false;
+  if (f.mimeType === 'application/vnd.google-apps.shortcut') return false;
+  return true;
+}
+
 /**
  * Comprueba que un archivo o carpeta de Drive cuelga de VIDEO_SALA_ROOT_FOLDER_ID.
  * Recorre todos los padres en cada nivel (Drive puede devolver varios; en unidades compartidas el orden no siempre es el “camino” lógico).
@@ -724,12 +731,29 @@ async function isUnderVideoSalaRoot(drive, itemId, rootId = VIDEO_SALA_ROOT_FOLD
     const got = await drive.files
       .get({
         fileId: cur,
-        fields: 'parents',
+        fields: 'parents, mimeType',
         supportsAllDrives: true
       })
       .catch(() => null);
     const parents = got?.data?.parents;
-    if (!Array.isArray(parents) || parents.length === 0) continue;
+    const mime = got?.data?.mimeType;
+
+    if (!Array.isArray(parents) || parents.length === 0) {
+      if (cur === start) {
+        if (mime === 'application/vnd.google-apps.folder') {
+          if (await folderIsUnderRootByListing(drive, cur, root)) return true;
+        } else {
+          if (await videoFileIsUnderRootByListing(drive, cur, root, { relaxNameMime: true })) {
+            return true;
+          }
+        }
+        continue;
+      }
+      if (mime === 'application/vnd.google-apps.folder' && (await folderIsUnderRootByListing(drive, cur, root))) {
+        return true;
+      }
+      continue;
+    }
 
     for (const p of parents) {
       const pid = String(p || '').trim();
@@ -821,7 +845,13 @@ function listingEntryLooksLikeSalaVideo(f) {
   return isPlausibleVideoFile(f.mimeType, f.name) || looksLikeVideoFilename(f.name);
 }
 
-async function videoFileIsUnderRootByListing(drive, targetFileId, rootId = VIDEO_SALA_ROOT_FOLDER_ID) {
+async function videoFileIsUnderRootByListing(
+  drive,
+  targetFileId,
+  rootId = VIDEO_SALA_ROOT_FOLDER_ID,
+  opts = {}
+) {
+  const relaxNameMime = opts.relaxNameMime === true;
   const target = String(targetFileId || '').trim();
   const root = String(rootId || '').trim();
   if (!target || !root || !/^[-a-zA-Z0-9_]+$/.test(target)) return false;
@@ -829,8 +859,8 @@ async function videoFileIsUnderRootByListing(drive, targetFileId, rootId = VIDEO
   const queue = [root];
   const seen = new Set();
   let listCalls = 0;
-  const maxListCalls = 2500;
-  const maxSeen = 25000;
+  const maxListCalls = 5000;
+  const maxSeen = 50000;
 
   while (queue.length > 0 && listCalls < maxListCalls && seen.size < maxSeen) {
     const dir = queue.shift();
@@ -851,7 +881,11 @@ async function videoFileIsUnderRootByListing(drive, targetFileId, rootId = VIDEO
         });
         for (const f of res.data.files || []) {
           if (!f?.id) continue;
-          if (f.id === target && listingEntryLooksLikeSalaVideo(f)) return true;
+          if (f.id === target) {
+            if (listingEntryLooksLikeSalaVideo(f)) return true;
+            if (relaxNameMime && listingChildMatchesVideoFile(f, target)) return true;
+            continue;
+          }
           if (f.mimeType === 'application/vnd.google-apps.folder' && !seen.has(f.id)) {
             queue.push(f.id);
           }
@@ -891,7 +925,11 @@ async function fileIsListingChildOfSalaFolder(drive, fileId, listFolderId) {
         includeItemsFromAllDrives: true
       });
       for (const f of res.data.files || []) {
-        if (f && f.id === fileId && listingEntryLooksLikeSalaVideo(f)) return true;
+        if (!f) continue;
+        if (f.id === fileId) {
+          if (listingEntryLooksLikeSalaVideo(f)) return true;
+          if (listingChildMatchesVideoFile(f, fileId)) return true;
+        }
       }
       pageToken = res.data.nextPageToken;
     } while (pageToken);
@@ -972,7 +1010,7 @@ async function assertSalaVideoFileId(drive, fileId, listFolderId) {
   }
 
   if (!plausible) {
-    if (await videoFileIsUnderRootByListing(drive, fileId, root)) return true;
+    if (await videoFileIsUnderRootByListing(drive, fileId, root, { relaxNameMime: false })) return true;
     return false;
   }
   if (await isUnderVideoSalaRoot(drive, fileId, root)) return true;
@@ -982,7 +1020,7 @@ async function assertSalaVideoFileId(drive, fileId, listFolderId) {
       return true;
     }
   }
-  if (await videoFileIsUnderRootByListing(drive, fileId, root)) return true;
+  if (await videoFileIsUnderRootByListing(drive, fileId, root, { relaxNameMime: true })) return true;
   return false;
 }
 
