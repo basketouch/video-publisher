@@ -484,7 +484,10 @@ app.get('/auth/logout', requireAdmin, requirePublishEnabled, (req, res) => {
 
 // Config para el frontend (carpeta por defecto)
 const DEFAULT_FOLDER = process.env.DEFAULT_DRIVE_FOLDER_ID || '1y6rIQTNtqeRaq-z8Vw8kaWFvy_2moRtD';
-const PRIVATE_VIEWER_FOLDER = process.env.PRIVATE_VIEWER_DRIVE_FOLDER_ID || DEFAULT_FOLDER;
+/** Carpeta raíz de vídeos en la Sala (lista + subcarpetas). Sobreescribe con PRIVATE_VIEWER_DRIVE_FOLDER_ID. */
+const PRIVATE_VIEWER_FOLDER = (
+  process.env.PRIVATE_VIEWER_DRIVE_FOLDER_ID || '1vARtPfaS6Txu_u9hLwjqLmdjrakLnW_L'
+).trim();
 /** Carpeta donde vive video_notes.json (si no se define, usa la misma que los vídeos). Útil si los vídeos solo pueden ser “lector” pero quieres otra carpeta con permiso de editor para la SA. */
 const PRIVATE_NOTES_FOLDER = process.env.VIDEO_NOTES_DRIVE_FOLDER_ID || PRIVATE_VIEWER_FOLDER;
 const NOTES_FILE_NAME = process.env.VIDEO_NOTES_FILE_NAME || 'video_notes.json';
@@ -694,31 +697,103 @@ app.get('/api/drive/files', requireAdmin, requirePublishEnabled, async (req, res
   }
 });
 
-// Sala privada: listado de videos en carpeta fija (solo lectura)
+/**
+ * Ruta de migas desde folderId hasta rootId (inclusive). Máximo ~30 niveles.
+ */
+async function buildVideoFolderBreadcrumbs(drive, folderId, rootId) {
+  const segments = [];
+  let cur = folderId;
+  const seen = new Set();
+  while (cur && segments.length < 30 && !seen.has(cur)) {
+    seen.add(cur);
+    const got = await drive.files.get({
+      fileId: cur,
+      fields: 'id, name, parents',
+      supportsAllDrives: true
+    });
+    const data = got.data;
+    if (!data) break;
+    segments.unshift({ id: data.id, name: data.name || data.id });
+    if (data.id === rootId) break;
+    const next = data.parents && data.parents[0];
+    if (!next) break;
+    cur = next;
+  }
+  if (segments.length === 0 || segments[0].id !== rootId) {
+    const rootGot = await drive.files
+      .get({
+        fileId: rootId,
+        fields: 'id, name',
+        supportsAllDrives: true
+      })
+      .catch(() => null);
+    const rootName = rootGot?.data?.name || 'Videos';
+    segments.unshift({ id: rootId, name: rootName });
+  }
+  return segments;
+}
+
+// Sala privada: listado de carpetas + vídeos (navegable). ?folder=id para subcarpeta.
 app.get('/api/private/videos', requireAuth, async (req, res) => {
   await ensureServiceAccountCreds();
   const auth = getDriveServiceAccountClient();
   if (!auth) {
     return res.status(503).json({ error: 'Service Account no configurado para sala privada' });
   }
+  const rawFolder = typeof req.query.folder === 'string' ? req.query.folder.trim() : '';
+  const parentId = rawFolder || PRIVATE_VIEWER_FOLDER;
+  if (!/^[\w-]+$/.test(parentId)) {
+    return res.status(400).json({ error: 'Identificador de carpeta no válido' });
+  }
   try {
     const drive = google.drive({ version: 'v3', auth });
     const { data } = await drive.files.list({
-      q: `'${PRIVATE_VIEWER_FOLDER}' in parents and mimeType contains 'video/' and trashed = false`,
+      q: `'${parentId}' in parents and trashed = false`,
       fields: 'files(id, name, mimeType, size, modifiedTime)',
-      orderBy: 'modifiedTime desc',
-      pageSize: 100,
+      pageSize: 200,
       supportsAllDrives: true,
       includeItemsFromAllDrives: true
     });
-    const videos = (data.files || []).map((f) => ({
-      id: f.id,
-      title: f.name,
-      mimeType: f.mimeType,
-      size: f.size,
-      modifiedTime: f.modifiedTime
-    }));
-    res.json({ videos });
+    const files = data.files || [];
+    const subfolders = files
+      .filter((f) => f.mimeType === 'application/vnd.google-apps.folder')
+      .map((f) => ({ id: f.id, name: f.name }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
+    const videos = files
+      .filter((f) => f.mimeType && String(f.mimeType).startsWith('video/'))
+      .sort((a, b) => new Date(b.modifiedTime || 0) - new Date(a.modifiedTime || 0))
+      .map((f) => ({
+        id: f.id,
+        title: f.name,
+        mimeType: f.mimeType,
+        size: f.size,
+        modifiedTime: f.modifiedTime
+      }));
+
+    const folderMeta = await drive.files
+      .get({
+        fileId: parentId,
+        fields: 'id, name, parents, mimeType',
+        supportsAllDrives: true
+      })
+      .catch(() => null);
+    if (!folderMeta?.data || folderMeta.data.mimeType !== 'application/vnd.google-apps.folder') {
+      return res.status(404).json({ error: 'Carpeta no encontrada' });
+    }
+
+    const breadcrumbs = await buildVideoFolderBreadcrumbs(drive, parentId, PRIVATE_VIEWER_FOLDER);
+    const parents = folderMeta.data.parents || [];
+    const parentFolderId = parents[0] || null;
+
+    res.json({
+      rootFolderId: PRIVATE_VIEWER_FOLDER,
+      folderId: parentId,
+      folderName: folderMeta.data.name || 'Videos',
+      parentFolderId,
+      breadcrumbs,
+      subfolders,
+      videos
+    });
   } catch (err) {
     console.error('Error listando videos privados:', err);
     res.status(500).json({ error: 'No se pudieron cargar los videos privados' });

@@ -224,6 +224,45 @@
       background: rgba(85, 37, 131, 0.25);
     }
     .left-stack { min-height: 0; }
+    #left-pane-video {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+    #left-pane-video .list {
+      flex: 1;
+      min-height: 0;
+    }
+    .video-breadcrumb {
+      padding: 10px 14px 8px;
+      font-size: 12px;
+      color: var(--text-secondary);
+      border-bottom: 1px solid rgba(253, 185, 39, 0.1);
+      flex-wrap: wrap;
+      gap: 4px 2px;
+      align-items: center;
+      display: flex;
+    }
+    .video-breadcrumb button {
+      background: none;
+      border: none;
+      color: var(--lakers-gold);
+      cursor: pointer;
+      font-size: inherit;
+      font-weight: 600;
+      padding: 2px 4px;
+      border-radius: 4px;
+      font-family: inherit;
+    }
+    .video-breadcrumb button:hover { background: rgba(85, 37, 131, 0.35); }
+    .video-breadcrumb .sep { opacity: 0.45; user-select: none; padding: 0 2px; }
+    .video-breadcrumb .current {
+      color: var(--text-primary);
+      font-weight: 600;
+      padding: 2px 4px;
+    }
+    .item-folder .meta { text-transform: uppercase; letter-spacing: 0.4px; font-size: 10px; }
+    .item-folder .title::before { content: '📁 '; }
     .pane-label {
       font-size: 12px;
       text-transform: uppercase;
@@ -389,6 +428,7 @@
           <button type="button" class="main-tab" data-main="charts" role="tab" aria-selected="false">Gráficos</button>
         </div>
         <div id="left-pane-video" class="left-stack">
+          <nav id="video-breadcrumb" class="video-breadcrumb" aria-label="Carpetas de videos"></nav>
           <div id="video-list" class="list">
             <div class="empty">Cargando videos...</div>
           </div>
@@ -1273,6 +1313,7 @@
   </script>
   <script>
     const listEl = document.getElementById('video-list');
+    const videoBreadcrumbEl = document.getElementById('video-breadcrumb');
     const player = document.getElementById('player');
     const rightHeading = document.getElementById('right-heading');
     const logoutBtn = document.getElementById('logout');
@@ -1283,8 +1324,34 @@
     const notesActions = document.getElementById('notes-actions');
     const saveNotesBtn = document.getElementById('save-notes');
     let videos = [];
+    let videoSubfolders = [];
     let currentRole = null;
     let currentVideoId = null;
+
+    function escapeHtml(s) {
+      return String(s || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function renderVideoBreadcrumbs(bc) {
+      if (!videoBreadcrumbEl) return;
+      if (!bc || !bc.length) {
+        videoBreadcrumbEl.innerHTML = '';
+        return;
+      }
+      videoBreadcrumbEl.innerHTML = bc
+        .map((seg, i) => {
+          const isLast = i === bc.length - 1;
+          if (isLast) {
+            return `<span class="current">${escapeHtml(seg.name)}</span>`;
+          }
+          return `<button type="button" class="bc-seg" data-folder-id="${String(seg.id || '').replace(/"/g, '&quot;')}">${escapeHtml(seg.name)}</button><span class="sep">/</span>`;
+        })
+        .join('');
+    }
 
     function formatDate(value) {
       if (!value) return '';
@@ -1317,16 +1384,29 @@
     }
 
     function renderList() {
-      if (!videos.length) {
-        listEl.innerHTML = '<div class="empty">No hay videos disponibles en la carpeta privada.</div>';
+      if (!videos.length && !videoSubfolders.length) {
+        listEl.innerHTML = '<div class="empty">No hay carpetas ni videos en esta ubicación.</div>';
         return;
       }
-      listEl.innerHTML = videos.map((v, idx) => `
-        <button class="item ${idx === 0 ? 'active' : ''}" data-id="${v.id}" data-title="${(v.title || '').replace(/"/g, '&quot;')}">
-          <span class="title">${v.title}</span>
+      const folderRows = videoSubfolders
+        .map(
+          (f) => `
+        <button type="button" class="item item-folder" data-folder-id="${(f.id || '').replace(/"/g, '&quot;')}" data-title="${(f.name || '').replace(/"/g, '&quot;')}">
+          <span class="title">${escapeHtml(f.name)}</span>
+          <span class="meta">Carpeta</span>
+        </button>`
+        )
+        .join('');
+      const videoRows = videos
+        .map(
+          (v, idx) => `
+        <button type="button" class="item ${idx === 0 ? 'active' : ''}" data-id="${(v.id || '').replace(/"/g, '&quot;')}" data-title="${(v.title || '').replace(/"/g, '&quot;')}">
+          <span class="title">${escapeHtml(v.title)}</span>
           <span class="meta">${formatDate(v.modifiedTime)}</span>
-        </button>
-      `).join('');
+        </button>`
+        )
+        .join('');
+      listEl.innerHTML = folderRows + videoRows;
     }
 
     async function loadNotes(videoId) {
@@ -1358,21 +1438,48 @@
       await loadNotes(id);
     }
 
-    async function loadVideos() {
-      const resp = await fetch('/api/private/videos');
+    async function loadVideos(folderId) {
+      const q = folderId ? `?folder=${encodeURIComponent(folderId)}` : '';
+      const resp = await fetch(`/api/private/videos${q}`);
       const data = await resp.json().catch(() => ({}));
       if (!resp.ok) {
         listEl.innerHTML = `<div class="empty">${data.error || 'No se pudieron cargar los videos.'}</div>`;
+        if (videoBreadcrumbEl) videoBreadcrumbEl.innerHTML = '';
         return;
       }
+      videoSubfolders = data.subfolders || [];
+      renderVideoBreadcrumbs(data.breadcrumbs || []);
       videos = data.videos || [];
       renderList();
       if (videos[0]) await playVideo(videos[0].id, videos[0].title);
+      else {
+        player.removeAttribute('src');
+        if (typeof player.load === 'function') player.load();
+        currentVideoId = null;
+        window.__salaCurrentVideoTitle = '';
+        if (rightHeading) rightHeading.textContent = data.folderName || 'Videos';
+        notesText.textContent = 'Abre una subcarpeta o elige otra ruta; aquí no hay archivos de video.';
+        notesEditor.value = '';
+        notesMeta.textContent = '';
+      }
+    }
+
+    if (videoBreadcrumbEl) {
+      videoBreadcrumbEl.addEventListener('click', (e) => {
+        const b = e.target.closest('.bc-seg');
+        if (!b || !b.dataset.folderId) return;
+        void loadVideos(b.dataset.folderId);
+      });
     }
 
     listEl.addEventListener('click', (e) => {
+      const folderBtn = e.target.closest('.item-folder');
+      if (folderBtn && folderBtn.dataset.folderId) {
+        void loadVideos(folderBtn.dataset.folderId);
+        return;
+      }
       const btn = e.target.closest('.item');
-      if (!btn) return;
+      if (!btn || !btn.dataset.id) return;
       playVideo(btn.dataset.id, btn.dataset.title);
     });
 
