@@ -486,9 +486,9 @@ app.get('/auth/logout', requireAdmin, requirePublishEnabled, (req, res) => {
 const DEFAULT_FOLDER = process.env.DEFAULT_DRIVE_FOLDER_ID || '1y6rIQTNtqeRaq-z8Vw8kaWFvy_2moRtD';
 /**
  * Única carpeta de vídeos de la Sala (y subcarpetas). No se usa otra ruta de Drive para listar/reproducir.
- * https://drive.google.com/drive/folders/1-tBzEvk8cEiXL544_-alOVMajXzYI9aL
+ * [Videos] https://drive.google.com/drive/folders/1vARtPfaS6Txu_u9hLwjqLmdjrakLnW_L
  */
-const VIDEO_SALA_ROOT_FOLDER_ID = '1-tBzEvk8cEiXL544_-alOVMajXzYI9aL';
+const VIDEO_SALA_ROOT_FOLDER_ID = '1vARtPfaS6Txu_u9hLwjqLmdjrakLnW_L';
 const PRIVATE_VIEWER_FOLDER = VIDEO_SALA_ROOT_FOLDER_ID;
 /** Carpeta donde vive video_notes.json (si no se define, usa la misma que los vídeos). Útil si los vídeos solo pueden ser “lector” pero quieres otra carpeta con permiso de editor para la SA. */
 const PRIVATE_NOTES_FOLDER = process.env.VIDEO_NOTES_DRIVE_FOLDER_ID || PRIVATE_VIEWER_FOLDER;
