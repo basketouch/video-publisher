@@ -700,16 +700,27 @@ app.get('/api/drive/files', requireAdmin, requirePublishEnabled, async (req, res
 });
 
 /**
- * Comprueba que un archivo o carpeta de Drive cuelga de VIDEO_SALA_ROOT_FOLDER_ID (ancestros hasta la raíz).
+ * Comprueba que un archivo o carpeta de Drive cuelga de VIDEO_SALA_ROOT_FOLDER_ID.
+ * Recorre todos los padres en cada nivel (Drive puede devolver varios; en unidades compartidas el orden no siempre es el “camino” lógico).
  */
 async function isUnderVideoSalaRoot(drive, itemId, rootId = VIDEO_SALA_ROOT_FOLDER_ID) {
-  if (!itemId || !rootId || !/^[\w-]+$/.test(String(itemId))) return false;
-  let cur = itemId;
-  const seen = new Set();
-  for (let d = 0; d < 60 && cur; d++) {
-    if (cur === rootId) return true;
-    if (seen.has(cur)) return false;
-    seen.add(cur);
+  const root = String(rootId || '').trim();
+  const start = String(itemId || '').trim();
+  if (!start || !root) return false;
+  if (start === root) return true;
+  if (!/^[-a-zA-Z0-9_]+$/.test(start)) return false;
+
+  const visited = new Set();
+  const queue = [start];
+  let steps = 0;
+  const maxSteps = 100;
+  while (queue.length > 0 && steps < maxSteps) {
+    steps += 1;
+    const cur = queue.shift();
+    if (!cur || visited.has(cur)) continue;
+    visited.add(cur);
+    if (cur === root) return true;
+
     const got = await drive.files
       .get({
         fileId: cur,
@@ -717,15 +728,21 @@ async function isUnderVideoSalaRoot(drive, itemId, rootId = VIDEO_SALA_ROOT_FOLD
         supportsAllDrives: true
       })
       .catch(() => null);
-    const parents = got?.data?.parents || [];
-    if (!parents.length) return false;
-    cur = parents[0];
+    const parents = got?.data?.parents;
+    if (!Array.isArray(parents) || parents.length === 0) continue;
+
+    for (const p of parents) {
+      const pid = String(p || '').trim();
+      if (!pid) continue;
+      if (pid === root) return true;
+      if (!visited.has(pid)) queue.push(pid);
+    }
   }
   return false;
 }
 
 async function assertSalaVideoFileId(drive, fileId) {
-  if (!fileId || !/^[\w-]+$/.test(String(fileId))) return false;
+  if (!fileId || !/^[-a-zA-Z0-9_]+$/.test(String(fileId))) return false;
   const got = await drive.files
     .get({
       fileId,
@@ -783,13 +800,17 @@ app.get('/api/private/videos', requireAuth, async (req, res) => {
   }
   const rawFolder = typeof req.query.folder === 'string' ? req.query.folder.trim() : '';
   const parentId = rawFolder || PRIVATE_VIEWER_FOLDER;
-  if (!/^[\w-]+$/.test(parentId)) {
+  if (!/^[-a-zA-Z0-9_]+$/.test(parentId)) {
     return res.status(400).json({ error: 'Identificador de carpeta no válido' });
   }
   try {
     const drive = google.drive({ version: 'v3', auth });
     const allowedFolder = await isUnderVideoSalaRoot(drive, parentId, VIDEO_SALA_ROOT_FOLDER_ID);
     if (!allowedFolder) {
+      console.warn('[videos] Carpeta fuera del árbol de Videos o sin parents legibles', {
+        parentId,
+        rootId: VIDEO_SALA_ROOT_FOLDER_ID
+      });
       return res.status(403).json({ error: 'Solo se permite acceder a la carpeta Videos de la sala y sus subcarpetas.' });
     }
     const { data } = await drive.files.list({
