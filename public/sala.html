@@ -287,10 +287,19 @@
     .video-speed-select:hover { border-color: rgba(253, 185, 39, 0.5); }
     .video-speed-select:focus { outline: none; border-color: var(--lakers-gold); }
     .video-speed-hint {
-      font-size: 11px;
-      color: var(--text-secondary);
-      margin: 0;
+      box-sizing: border-box;
       flex: 1 1 100%;
+      margin: 0;
+      padding: 0;
+      font-size: 11px;
+      line-height: 1.4;
+      /* Misma reserva de altura que el párrafo informativo (~2 líneas) sin mostrar texto */
+      min-height: 2.8em;
+      max-height: 2.8em;
+      overflow: hidden;
+      opacity: 0;
+      pointer-events: none;
+      user-select: none;
     }
     .notes-box {
       margin-top: 14px;
@@ -677,7 +686,7 @@
               </button>
             </div>
             <video id="player" controls playsinline preload="metadata"></video>
-            <div class="video-speed-bar" id="player-speed-wrap" aria-label="Ajuste de carga y velocidad">
+            <div class="video-speed-bar" id="player-speed-wrap" aria-label="Velocidad de reproducción">
               <span class="video-speed-label" id="player-speed-label">Velocidad</span>
               <select id="sala-playback-rate" class="video-speed-select" title="Velocidad de reproducción" aria-label="Velocidad de reproducción">
                 <option value="0.5">0,5×</option>
@@ -687,7 +696,7 @@
                 <option value="1.5">1,5×</option>
                 <option value="2">2×</option>
               </select>
-              <p class="video-speed-hint" id="player-preload-hint">Más buffer al abrir un clip. La fluidez depende de la red y del enlace a Drive.</p>
+              <p class="video-speed-hint" id="player-preload-hint" aria-hidden="true"></p>
             </div>
             <div class="notes-box" id="sala-video-notes-box">
               <div class="notes-header">
