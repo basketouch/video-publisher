@@ -741,18 +741,81 @@ async function isUnderVideoSalaRoot(drive, itemId, rootId = VIDEO_SALA_ROOT_FOLD
   return false;
 }
 
+/**
+ * Comprueba que targetFolderId es una subcarpeta de rootId recorriendo solo carpetas desde la raíz (list).
+ * Útil cuando files.get/parents no devuelve bien la cadena en unidades compartidas.
+ */
+async function folderIsUnderRootByListing(drive, targetFolderId, rootId = VIDEO_SALA_ROOT_FOLDER_ID) {
+  const target = String(targetFolderId || '').trim();
+  const root = String(rootId || '').trim();
+  if (!target || !root) return false;
+  if (target === root) return true;
+  if (!/^[-a-zA-Z0-9_]+$/.test(target)) return false;
+
+  const queue = [root];
+  const seen = new Set();
+  let listCalls = 0;
+  const maxListCalls = 600;
+  const maxSeen = 12000;
+
+  while (queue.length > 0 && listCalls < maxListCalls && seen.size < maxSeen) {
+    const dir = queue.shift();
+    if (!dir || seen.has(dir)) continue;
+    if (dir === target) return true;
+    seen.add(dir);
+
+    listCalls += 1;
+    let pageToken;
+    try {
+      do {
+        const res = await drive.files.list({
+          q: `'${dir}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+          fields: 'nextPageToken, files(id)',
+          pageSize: 200,
+          pageToken,
+          supportsAllDrives: true,
+          includeItemsFromAllDrives: true
+        });
+        for (const f of res.data.files || []) {
+          if (!f?.id) continue;
+          if (f.id === target) return true;
+          if (!seen.has(f.id)) queue.push(f.id);
+        }
+        pageToken = res.data.nextPageToken;
+      } while (pageToken);
+    } catch (e) {
+      console.warn('[videos] folderIsUnderRootByListing list error', dir, e.message);
+    }
+  }
+  return false;
+}
+
+async function assertFolderInSalaVideoTree(drive, folderId) {
+  const root = VIDEO_SALA_ROOT_FOLDER_ID;
+  if (await isUnderVideoSalaRoot(drive, folderId, root)) return true;
+  return folderIsUnderRootByListing(drive, folderId, root);
+}
+
 async function assertSalaVideoFileId(drive, fileId) {
   if (!fileId || !/^[-a-zA-Z0-9_]+$/.test(String(fileId))) return false;
   const got = await drive.files
     .get({
       fileId,
-      fields: 'mimeType, trashed',
+      fields: 'mimeType, trashed, parents',
       supportsAllDrives: true
     })
     .catch(() => null);
   const mime = got?.data?.mimeType;
   if (!mime || !String(mime).startsWith('video/') || got?.data?.trashed === true) return false;
-  return isUnderVideoSalaRoot(drive, fileId, VIDEO_SALA_ROOT_FOLDER_ID);
+  if (await isUnderVideoSalaRoot(drive, fileId, VIDEO_SALA_ROOT_FOLDER_ID)) return true;
+  const parents = got?.data?.parents || [];
+  const root = VIDEO_SALA_ROOT_FOLDER_ID;
+  for (const p of parents) {
+    const pid = String(p || '').trim();
+    if (pid === root) return true;
+    if (await folderIsUnderRootByListing(drive, pid, root)) return true;
+  }
+  return false;
 }
 
 /**
@@ -805,9 +868,9 @@ app.get('/api/private/videos', requireAuth, async (req, res) => {
   }
   try {
     const drive = google.drive({ version: 'v3', auth });
-    const allowedFolder = await isUnderVideoSalaRoot(drive, parentId, VIDEO_SALA_ROOT_FOLDER_ID);
+    const allowedFolder = await assertFolderInSalaVideoTree(drive, parentId);
     if (!allowedFolder) {
-      console.warn('[videos] Carpeta fuera del árbol de Videos o sin parents legibles', {
+      console.warn('[videos] Carpeta no está bajo la raíz Videos (parents + list)', {
         parentId,
         rootId: VIDEO_SALA_ROOT_FOLDER_ID
       });
