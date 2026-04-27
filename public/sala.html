@@ -743,7 +743,9 @@
         const players = chartTeamFilter
           ? all.filter((p) => p.team === chartTeamFilter)
           : all;
-        const ppsList = players.map((p) => p.pps).filter((v) => v != null);
+        const ppsList = players
+          .map((p) => Number(p.pps))
+          .filter((v) => Number.isFinite(v));
         const meanPps = ppsList.length
           ? Math.round((ppsList.reduce((s, v) => s + v, 0) / ppsList.length) * 1000) / 1000
           : null;
@@ -805,11 +807,17 @@
             }
           });
         }
-        if (typeof meanPps === 'number' && !Number.isNaN(meanPps) && series.length) {
+        if (Number.isFinite(meanPps) && series.length) {
+          const meanLabel = Number(meanPps).toFixed(2);
           series[0].markLine = {
             symbol: 'none',
             lineStyle: { type: 'dashed', color: LAKERS_GOLD, width: 2, opacity: 0.9 },
-            label: { show: true, formatter: 'Media PPS', color: LAKERS_GOLD, fontSize: 11 },
+            label: {
+              show: true,
+              formatter: () => `Media PPS ${meanLabel}`,
+              color: LAKERS_GOLD,
+              fontSize: 11
+            },
             data: [{ yAxis: meanPps }]
           };
         }
