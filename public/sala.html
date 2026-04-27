@@ -213,13 +213,56 @@
       position: relative;
       background: radial-gradient(circle at 50% 0%, rgba(253, 185, 39, 0.08), transparent 40%);
     }
-    video {
+    .player-video-frame {
+      position: relative;
       width: 100%;
       max-height: 72vh;
-      background: #000;
+      aspect-ratio: 16 / 9;
       border-radius: 12px;
       border: 1px solid rgba(253, 185, 39, 0.28);
       box-shadow: 0 16px 28px rgba(0, 0, 0, 0.35);
+      background: #0a0a0f;
+      overflow: hidden;
+    }
+    .player-video-frame video {
+      position: relative;
+      z-index: 1;
+      display: block;
+      width: 100%;
+      height: 100%;
+      min-height: 0;
+      max-height: 72vh;
+      object-fit: contain;
+      background: #000;
+      border: none;
+      box-shadow: none;
+    }
+    .player-placeholder {
+      position: absolute;
+      inset: 0;
+      z-index: 2;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #0a0a0f;
+    }
+    .player-placeholder[hidden] {
+      display: none !important;
+    }
+    .player-placeholder img {
+      max-width: 100%;
+      max-height: 100%;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+      pointer-events: none;
+    }
+    .player-video-frame.has-video .player-placeholder {
+      display: none !important;
+    }
+    .player-video-frame.has-video video {
+      z-index: 1;
     }
     .video-speed-bar {
       display: flex;
@@ -627,7 +670,12 @@
         <h2 id="right-heading">Selecciona un video</h2>
         <div id="right-stack-video" class="right-stack">
           <div class="player-wrap">
-            <video id="player" controls playsinline preload="metadata"></video>
+            <div class="player-video-frame" id="player-video-frame" aria-label="Vídeo o portada">
+              <video id="player" controls playsinline preload="metadata" aria-label="Reproductor de video"></video>
+              <div class="player-placeholder" id="player-placeholder">
+                <img src="/portada-laboratorio.png" alt="El Laboratorio de Jorge Lorenzo" width="800" height="450" />
+              </div>
+            </div>
             <div class="video-speed-bar" id="player-speed-wrap" aria-label="Velocidad de reproducción">
               <span class="video-speed-label" id="player-speed-label">Velocidad</span>
               <select id="sala-playback-rate" class="video-speed-select" title="Velocidad de reproducción" aria-label="Velocidad de reproducción">
@@ -1564,6 +1612,7 @@
     const videoBreadcrumbEl = document.getElementById('video-breadcrumb');
     const sortSelect = document.getElementById('video-list-sort');
     const player = document.getElementById('player');
+    const playerVideoFrame = document.getElementById('player-video-frame');
     const rightHeading = document.getElementById('right-heading');
     const logoutBtn = document.getElementById('logout');
     const adminLink = document.getElementById('admin-link');
@@ -1629,6 +1678,12 @@
       });
     }
     initPlaybackRateUI();
+
+    function syncPlayerPlaceholder() {
+      if (!playerVideoFrame) return;
+      playerVideoFrame.classList.toggle('has-video', !!currentVideoId);
+    }
+    syncPlayerPlaceholder();
 
     function privateVideoQuerySuffix() {
       const folderId =
@@ -1788,6 +1843,7 @@
       player.addEventListener('loadedmetadata', fixRate);
       if (listEl) listEl.querySelectorAll('button.item').forEach((btn) => btn.classList.toggle('active', btn.dataset.id === id));
       await loadNotes(id);
+      syncPlayerPlaceholder();
     }
 
     async function loadVideos(folderId) {
@@ -1826,6 +1882,7 @@
         notesText.textContent = 'Elige un video de la lista; pulsa play en el reproductor para verlo.';
         notesEditor.value = '';
         notesMeta.textContent = '';
+        syncPlayerPlaceholder();
       } else {
         player.removeAttribute('src');
         player.preload = 'metadata';
@@ -1836,6 +1893,7 @@
         notesText.textContent = 'Abre una subcarpeta o elige otra ruta; aquí no hay archivos de video.';
         notesEditor.value = '';
         notesMeta.textContent = '';
+        syncPlayerPlaceholder();
       }
     }
 
