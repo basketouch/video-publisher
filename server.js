@@ -11,7 +11,7 @@ const bodyParser = require('body-parser');
 const cookieSession = require('cookie-session');
 const { google } = require('googleapis');
 const { createClient } = require('@supabase/supabase-js');
-const { aggregateFromXmlString } = require('./lib/statsFromScoutingXml');
+const { aggregateFromXmlString, mergeAggregatedPayloads } = require('./lib/statsFromScoutingXml');
 const { listGames, getGameXmlAndTitle } = require('./lib/salaGamesStore');
 
 const GAMES_DATA_DIR = process.env.GAME_DATA_DIR
@@ -930,6 +930,63 @@ app.get('/api/private/games', requireAuth, async (req, res) => {
   } catch (err) {
     console.error('Error listando partidos:', err);
     res.status(500).json({ error: 'No se pudo leer el listado de partidos' });
+  }
+});
+
+/** Acumulado de todos los XML de la carpeta (comparativa entre partidos). Debe ir antes de /games/:id/stats. */
+app.get('/api/private/games/aggregate/stats', requireAuth, async (req, res) => {
+  try {
+    const list = await listGames(GAMES_DATA_DIR, getSalaGamesStoreContext());
+    if (!list.length) {
+      return res.json({
+        id: 'aggregate',
+        title: 'Acumulado · todos los partidos',
+        players: [],
+        meanPps: null,
+        hasPlaymaking: false,
+        gamesCount: 0,
+        gamesWithData: 0,
+        aggregated: true
+      });
+    }
+    const payloads = [];
+    for (const g of list) {
+      try {
+        const bundle = await getGameXmlAndTitle(g.id, GAMES_DATA_DIR, getSalaGamesStoreContext());
+        if (bundle?.xml) {
+          payloads.push(aggregateFromXmlString(bundle.xml));
+        }
+      } catch (e) {
+        console.error(`aggregate stats: omitiendo partido ${g.id}:`, e.message);
+      }
+    }
+    if (!payloads.length) {
+      return res.json({
+        id: 'aggregate',
+        title: 'Acumulado · todos los partidos',
+        players: [],
+        meanPps: null,
+        hasPlaymaking: false,
+        gamesCount: list.length,
+        gamesWithData: 0,
+        aggregated: true
+      });
+    }
+    const merged = mergeAggregatedPayloads(payloads);
+    const n = payloads.length;
+    res.json({
+      id: 'aggregate',
+      title: `Acumulado · ${n} partido${n === 1 ? '' : 's'}`,
+      players: merged.players,
+      meanPps: merged.meanPps,
+      hasPlaymaking: !!merged.hasPlaymaking,
+      gamesCount: list.length,
+      gamesWithData: n,
+      aggregated: true
+    });
+  } catch (err) {
+    console.error('Error en estadísticas acumuladas:', err);
+    res.status(500).json({ error: 'No se pudo agregar estadísticas de todos los partidos' });
   }
 });
 

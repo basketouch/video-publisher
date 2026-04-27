@@ -272,14 +272,6 @@
       gap: 10px 12px;
       margin-bottom: 10px;
     }
-    .chart-team-inline {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      flex: 1 1 auto;
-      justify-content: center;
-      min-width: 0;
-    }
     .chart-type-tabs { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
     .chart-type-tab {
       border: 1px solid rgba(253, 185, 39, 0.22);
@@ -320,7 +312,23 @@
       overflow: hidden; clip: rect(0,0,0,0); border: 0; white-space: nowrap;
     }
     .chart-hint { font-size: 12px; color: var(--text-secondary); margin: 0 0 8px; line-height: 1.4; }
-    .chart-team-inline label { font-size: 12px; color: var(--text-secondary); font-weight: 600; white-space: nowrap; }
+    .chart-filters-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px 18px;
+      flex: 1 1 auto;
+      justify-content: center;
+      min-width: 0;
+    }
+    .chart-team-inline,
+    .chart-scope-inline {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .chart-team-inline label,
+    .chart-scope-inline label { font-size: 12px; color: var(--text-secondary); font-weight: 600; white-space: nowrap; }
     .chart-team-select {
       min-width: 160px;
       max-width: min(100%, 280px);
@@ -353,7 +361,7 @@
       .toolbar { align-items: flex-start; flex-direction: column; }
     }
     @media (max-width: 720px) {
-      .chart-team-inline {
+      .chart-filters-row {
         flex-basis: 100%;
         order: 3;
         justify-content: flex-start;
@@ -421,11 +429,20 @@
                 <button type="button" class="chart-type-tab" data-chart="efg" role="tab" aria-selected="false">eFG% / TS%</button>
                 <button type="button" class="chart-type-tab" data-chart="mix" role="tab" aria-selected="false" title="Aciertos en 2P, 3P y tiro libre; en el detalle, anotados frente a intentos">Anatomía</button>
               </div>
-              <div class="chart-team-inline">
-                <label for="chart-team-filter">Equipo</label>
-                <select id="chart-team-filter" class="chart-team-select" aria-label="Filtrar estadísticas por equipo" title="Muestra solo jugadores de un equipo">
-                  <option value="">Todos los equipos</option>
-                </select>
+              <div class="chart-filters-row">
+                <div class="chart-team-inline">
+                  <label for="chart-team-filter">Equipo</label>
+                  <select id="chart-team-filter" class="chart-team-select" aria-label="Filtrar estadísticas por equipo" title="Muestra solo jugadores de un equipo">
+                    <option value="">Todos los equipos</option>
+                  </select>
+                </div>
+                <div class="chart-scope-inline">
+                  <label for="chart-scope">Datos</label>
+                  <select id="chart-scope" class="chart-team-select" aria-label="Partido único o acumulado de todos" title="Partido: solo el seleccionado en la lista. Acumulado: suma de todos los partidos para comparar rendimiento global.">
+                    <option value="game">Partido (lista)</option>
+                    <option value="aggregate">Acumulado · todos</option>
+                  </select>
+                </div>
               </div>
               <div class="chart-embed-tools">
                 <button type="button" class="chart-tool" id="btn-fullscreen" disabled title="Pantalla completa" aria-label="Pantalla completa">
@@ -488,6 +505,8 @@
       let lastStatsPayload = null;
       let chartTeamFilter = '';
       const teamFilterEl = document.getElementById('chart-team-filter');
+      const chartScopeEl = document.getElementById('chart-scope');
+      const AGGREGATE_GAME_ID = 'aggregate';
       const CHART_HINTS = {
         pps: 'Eficiencia: volumen (FGA) frente a PPS. PPS = puntos de canasta de campo (sin tiros libres) entre intentos (FGA).',
         efg: 'Eficiencia ajustada: eFG% incluye el valor del triple. TS% incluye el impacto de los tiros libres. Escala 0–100 %.',
@@ -501,6 +520,32 @@
       const gameChartNotesMeta = document.getElementById('game-chart-notes-meta');
       const saveGameChartBtn = document.getElementById('save-game-chart-notes');
       const PTS_FT_GRAY = '#8d8d8d';
+
+      function getChartDataScope() {
+        return chartScopeEl && chartScopeEl.value === 'aggregate' ? 'aggregate' : 'game';
+      }
+
+      function formatChartHint(kind) {
+        const base = CHART_HINTS[kind] || CHART_HINTS.pps;
+        const d = lastStatsPayload;
+        if (d && d.aggregated && typeof d.gamesWithData === 'number') {
+          return `${base} Vista acumulada: ${d.gamesWithData} partido(s) con datos (suma por jugador entre partidos).`;
+        }
+        return base;
+      }
+
+      function getChartHeadingTitle(data, titleFromSelect) {
+        if (data && data.aggregated) return data.title || 'Acumulado · todos los partidos';
+        return data.title || titleFromSelect || 'Gráficos del partido';
+      }
+
+      function getSanitizedChartFileSlug(data, titleFromSelect) {
+        const raw = (data && data.title) || titleFromSelect || 'partido';
+        return String(raw)
+          .replace(/[^\w\-\s\u00C0-\u024F.]/g, '_')
+          .replace(/\s+/g, '-')
+          .slice(0, 80) || 'grafico';
+      }
 
       function getTeamColor(team) {
         if (/Lakers/i.test(team)) return LAKERS_GOLD;
@@ -525,8 +570,15 @@
         } else {
           if (gamesData.length) {
             const g = gamesData.find((x) => x.id === (window.__salaSelectedGameId || gamesData[0].id)) || gamesData[0];
-            rightHeading.textContent = g.title || 'Gráficos del partido';
-            lastChartGameId = g.id;
+            if (getChartDataScope() === 'aggregate') {
+              lastChartGameId = AGGREGATE_GAME_ID;
+              rightHeading.textContent = lastStatsPayload && lastStatsPayload.aggregated
+                ? (lastStatsPayload.title || 'Acumulado · todos los partidos')
+                : 'Acumulado · todos los partidos';
+            } else {
+              lastChartGameId = g.id;
+              rightHeading.textContent = g.title || 'Gráficos del partido';
+            }
           } else {
             rightHeading.textContent = 'Gráficos del partido';
             lastChartGameId = null;
@@ -586,7 +638,7 @@
 
       function setChartKind(kind) {
         currentChartKind = kind;
-        if (chartHintEl) chartHintEl.textContent = CHART_HINTS[kind] || CHART_HINTS.pps;
+        if (chartHintEl) chartHintEl.textContent = formatChartHint(kind);
         setChartKindTabs(kind);
         if (lastStatsPayload && ppsChart) {
           ppsChart.setOption(buildChartOption(lastStatsPayload), true);
@@ -633,8 +685,12 @@
           </button>`;
         }).join('');
         const g0 = gamesData.find((g) => g.id === sel) || gamesData[0];
-        loadChart(g0.id, g0.title);
-        if (currentMain === 'charts') rightHeading.textContent = g0.title || 'Gráficos del partido';
+        if (getChartDataScope() === 'aggregate') {
+          void loadAggregateChart();
+        } else {
+          loadChart(g0.id, g0.title);
+          if (currentMain === 'charts') rightHeading.textContent = g0.title || 'Gráficos del partido';
+        }
       }
 
       gameListEl.addEventListener('click', (e) => {
@@ -643,8 +699,12 @@
         window.__salaSelectedGameId = btn.dataset.gameId;
         gameListEl.querySelectorAll('.item').forEach((b) => b.classList.toggle('active', b === btn));
         const title = btn.dataset.title || '';
-        loadChart(btn.dataset.gameId, title);
-        if (currentMain === 'charts') rightHeading.textContent = title || 'Gráficos del partido';
+        if (getChartDataScope() === 'aggregate') {
+          void loadAggregateChart();
+        } else {
+          loadChart(btn.dataset.gameId, title);
+          if (currentMain === 'charts') rightHeading.textContent = title || 'Gráficos del partido';
+        }
       });
 
       async function loadGameList(preselectId) {
@@ -1016,7 +1076,52 @@
         return buildOptionPps(v);
       }
 
+      async function loadAggregateChart() {
+        if (typeof echarts === 'undefined') return;
+        lastChartGameId = AGGREGATE_GAME_ID;
+        btnPng.disabled = true;
+        if (btnFullscreen) btnFullscreen.disabled = true;
+        const resp = await fetch('/api/private/games/aggregate/stats');
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+          lastStatsPayload = null;
+          if (teamFilterEl) {
+            while (teamFilterEl.firstChild) teamFilterEl.removeChild(teamFilterEl.firstChild);
+            const o0 = document.createElement('option');
+            o0.value = '';
+            o0.textContent = 'Todos los equipos';
+            teamFilterEl.appendChild(o0);
+            chartTeamFilter = '';
+          }
+          if (ppsChart) ppsChart.clear();
+          chartEmpty.textContent = data.error || 'No se pudieron cargar las estadísticas acumuladas.';
+          chartEmpty.style.display = 'block';
+          if (btnFullscreen) btnFullscreen.disabled = true;
+          void loadGameChartNotes();
+          return;
+        }
+        chartEmpty.style.display = 'none';
+        if (!ppsChart) ppsChart = echarts.init(chartEl, null, { renderer: 'canvas' });
+        lastStatsPayload = data;
+        populateTeamSelect(data.players);
+        if (chartHintEl) chartHintEl.textContent = formatChartHint(currentChartKind);
+        setChartKindTabs(currentChartKind);
+        lastChartTitle = getSanitizedChartFileSlug(data, 'acumulado');
+        ppsChart.setOption(buildChartOption(data), true);
+        const nPlayers = (buildPayloadForView(data).players || []).length;
+        btnPng.disabled = nPlayers === 0;
+        if (btnFullscreen) btnFullscreen.disabled = nPlayers === 0;
+        if (currentMain === 'charts') {
+          rightHeading.textContent = getChartHeadingTitle(data, '');
+        }
+        void loadGameChartNotes();
+        requestAnimationFrame(() => ppsChart && ppsChart.resize());
+      }
+
       async function loadChart(gameId, titleFromSelect) {
+        if (getChartDataScope() === 'aggregate') {
+          return loadAggregateChart();
+        }
         if (!gameId) return;
         if (typeof echarts === 'undefined') return;
         lastChartGameId = gameId;
@@ -1045,21 +1150,31 @@
         if (!ppsChart) ppsChart = echarts.init(chartEl, null, { renderer: 'canvas' });
         lastStatsPayload = data;
         populateTeamSelect(data.players);
-        if (chartHintEl) chartHintEl.textContent = CHART_HINTS[currentChartKind];
+        if (chartHintEl) chartHintEl.textContent = formatChartHint(currentChartKind);
         setChartKindTabs(currentChartKind);
-        lastChartTitle = (data.title || titleFromSelect || 'partido')
-          .replace(/[^\w\-\s\u00C0-\u024F.]/g, '_')
-          .replace(/\s+/g, '-')
-          .slice(0, 80) || 'grafico';
+        lastChartTitle = getSanitizedChartFileSlug(data, titleFromSelect);
         ppsChart.setOption(buildChartOption(data), true);
         const nPlayers = (buildPayloadForView(data).players || []).length;
         btnPng.disabled = nPlayers === 0;
         if (btnFullscreen) btnFullscreen.disabled = nPlayers === 0;
         if (currentMain === 'charts') {
-          rightHeading.textContent = data.title || titleFromSelect || 'Gráficos del partido';
+          rightHeading.textContent = getChartHeadingTitle(data, titleFromSelect);
         }
         void loadGameChartNotes();
         requestAnimationFrame(() => ppsChart && ppsChart.resize());
+      }
+
+      if (chartScopeEl) {
+        chartScopeEl.addEventListener('change', () => {
+          if (getChartDataScope() === 'aggregate') {
+            void loadAggregateChart();
+          } else {
+            const gid = window.__salaSelectedGameId || (gamesData[0] && gamesData[0].id);
+            const g = gamesData.find((x) => x.id === gid) || gamesData[0];
+            if (gid) loadChart(gid, g && g.title ? g.title : '');
+            if (currentMain === 'charts' && g) rightHeading.textContent = g.title || 'Gráficos del partido';
+          }
+        });
       }
 
       if (saveGameChartBtn) {
