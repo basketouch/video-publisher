@@ -206,6 +206,19 @@
       background: rgba(85, 37, 131, 0.38);
       border-left-color: var(--lakers-gold);
     }
+    .item-folder {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .item-folder .title { flex: 1 1 auto; min-width: 0; }
+    .folder-video-count {
+      flex-shrink: 0;
+      font-size: 13px;
+      font-weight: 600;
+      opacity: 0.75;
+    }
     .title { font-size: 14px; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
     .player-wrap {
       padding: 16px;
@@ -1775,10 +1788,16 @@
       const videos = sortVideoPaneVideos(videosData, listSort);
       const folderRows = subfolders
         .map(
-          (f) => `
+          (f) => {
+            const n = f.videoCount;
+            const count =
+              typeof n === 'number' && !Number.isNaN(n) ? n : 0;
+            return `
         <button type="button" class="item item-folder" data-folder-id="${(f.id || '').replace(/"/g, '&quot;')}" data-title="${(f.name || '').replace(/"/g, '&quot;')}">
           <span class="title">${escapeHtml(f.name)}</span>
-        </button>`
+          <span class="folder-video-count" aria-label="Videos en carpeta: ${count}">(${count})</span>
+        </button>`;
+          }
         )
         .join('');
       const videoRows = videos

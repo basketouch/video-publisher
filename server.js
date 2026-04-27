@@ -845,6 +845,34 @@ function listingEntryLooksLikeSalaVideo(f) {
   return isPlausibleVideoFile(f.mimeType, f.name) || looksLikeVideoFilename(f.name);
 }
 
+/**
+ * Número de vídeos (hijos directos) en una carpeta; misma heurística que el listado de sala.
+ */
+async function countSalaVideoFilesInFolder(drive, folderId) {
+  const id = String(folderId || '').trim();
+  if (!id || !/^[-a-zA-Z0-9_]+$/.test(id)) return 0;
+  let n = 0;
+  let pageToken;
+  do {
+    const { data } = await drive.files.list({
+      q: `'${id}' in parents and trashed = false`,
+      fields: 'nextPageToken, files(id, name, mimeType)',
+      pageSize: 200,
+      pageToken,
+      supportsAllDrives: true,
+      includeItemsFromAllDrives: true
+    });
+    for (const f of data.files || []) {
+      if (!f?.id) continue;
+      if (f.mimeType === 'application/vnd.google-apps.folder') continue;
+      if (f.mimeType === 'application/vnd.google-apps.shortcut') continue;
+      if (listingEntryLooksLikeSalaVideo(f)) n += 1;
+    }
+    pageToken = data.nextPageToken;
+  } while (pageToken);
+  return n;
+}
+
 async function videoFileIsUnderRootByListing(
   drive,
   targetFileId,
@@ -1144,9 +1172,15 @@ app.get('/api/private/videos', requireAuth, async (req, res) => {
       files.push(...(data.files || []));
       listPage = data.nextPageToken;
     } while (listPage);
-    const subfolders = files
+    const subfolderBase = files
       .filter((f) => f.mimeType === 'application/vnd.google-apps.folder')
       .map((f) => ({ id: f.id, name: f.name, modifiedTime: f.modifiedTime || null }));
+    const subfolders = await Promise.all(
+      subfolderBase.map(async (f) => {
+        const videoCount = await countSalaVideoFilesInFolder(drive, f.id);
+        return { ...f, videoCount };
+      })
+    );
     const videos = files
       .filter(
         (f) =>
