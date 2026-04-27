@@ -790,12 +790,22 @@ async function folderIsUnderRootByListing(drive, targetFolderId, rootId = VIDEO_
   return false;
 }
 
+function looksLikeVideoFilename(nameRaw) {
+  return /\.(mp4|mov|m4v|webm|avi|mkv|mpeg|mpg|3gp|wmv|flv|m2ts|ts)(\b|$)/i.test(String(nameRaw || ''));
+}
+
 function isPlausibleVideoFile(mimeRaw, nameRaw) {
   const mime = String(mimeRaw || '').toLowerCase();
   const name = String(nameRaw || '');
   if (mime.startsWith('video/')) return true;
+  if (mime === 'application/x-mpegurl' || mime === 'application/vnd.apple.mpegurl' || mime === 'audio/mpegurl') {
+    return true;
+  }
   if (mime === 'application/octet-stream' || mime === 'binary/octet-stream') {
-    return /\.(mp4|mov|m4v|webm|avi|mkv|mpeg|mpg|3gp|wmv|flv)(\b|$)/i.test(name);
+    return looksLikeVideoFilename(name);
+  }
+  if (!mime || mime === 'application/unknown' || mime === 'binary/octet-stream; charset=binary') {
+    return looksLikeVideoFilename(name);
   }
   return false;
 }
@@ -804,6 +814,13 @@ function isPlausibleVideoFile(mimeRaw, nameRaw) {
  * Comprueba que un archivo de vídeo cuelga de rootId recorriendo carpetas y listando hijos (como en la UI).
  * Cubre unidades compartidas donde parents en files.get no basta para la carpeta padre.
  */
+function listingEntryLooksLikeSalaVideo(f) {
+  if (!f?.id) return false;
+  if (f.mimeType === 'application/vnd.google-apps.folder') return false;
+  if (f.mimeType === 'application/vnd.google-apps.shortcut') return false;
+  return isPlausibleVideoFile(f.mimeType, f.name) || looksLikeVideoFilename(f.name);
+}
+
 async function videoFileIsUnderRootByListing(drive, targetFileId, rootId = VIDEO_SALA_ROOT_FOLDER_ID) {
   const target = String(targetFileId || '').trim();
   const root = String(rootId || '').trim();
@@ -812,9 +829,10 @@ async function videoFileIsUnderRootByListing(drive, targetFileId, rootId = VIDEO
   const queue = [root];
   const seen = new Set();
   let listCalls = 0;
-  const maxListCalls = 900;
+  const maxListCalls = 2500;
+  const maxSeen = 25000;
 
-  while (queue.length > 0 && listCalls < maxListCalls && seen.size < 12000) {
+  while (queue.length > 0 && listCalls < maxListCalls && seen.size < maxSeen) {
     const dir = queue.shift();
     if (!dir || seen.has(dir)) continue;
     seen.add(dir);
@@ -833,7 +851,7 @@ async function videoFileIsUnderRootByListing(drive, targetFileId, rootId = VIDEO
         });
         for (const f of res.data.files || []) {
           if (!f?.id) continue;
-          if (f.id === target && isPlausibleVideoFile(f.mimeType, f.name)) return true;
+          if (f.id === target && listingEntryLooksLikeSalaVideo(f)) return true;
           if (f.mimeType === 'application/vnd.google-apps.folder' && !seen.has(f.id)) {
             queue.push(f.id);
           }
@@ -863,15 +881,22 @@ async function assertSalaVideoFileId(drive, fileId) {
     })
     .catch(() => null);
   if (!got?.data || got.data.trashed === true) return false;
-  if (!isPlausibleVideoFile(got.data.mimeType, got.data.name)) return false;
+  if (got.data.mimeType === 'application/vnd.google-apps.folder') return false;
+
+  const m = got.data.mimeType;
+  const n = got.data.name;
+  const plausible = isPlausibleVideoFile(m, n) || looksLikeVideoFilename(n);
 
   const root = VIDEO_SALA_ROOT_FOLDER_ID;
-  if (await isUnderVideoSalaRoot(drive, fileId, root)) return true;
-  const parents = got.data.parents || [];
-  for (const p of parents) {
-    const pid = String(p || '').trim();
-    if (pid === root) return true;
-    if (await folderIsUnderRootByListing(drive, pid, root)) return true;
+  if (plausible) {
+    if (await isUnderVideoSalaRoot(drive, fileId, root)) return true;
+    for (const p of got.data.parents || []) {
+      const pid = String(p || '').trim();
+      if (pid === root) return true;
+      if (await folderIsUnderRootByListing(drive, pid, root)) return true;
+    }
+    if (await videoFileIsUnderRootByListing(drive, fileId, root)) return true;
+    return false;
   }
   if (await videoFileIsUnderRootByListing(drive, fileId, root)) return true;
   return false;
@@ -947,7 +972,12 @@ app.get('/api/private/videos', requireAuth, async (req, res) => {
       .filter((f) => f.mimeType === 'application/vnd.google-apps.folder')
       .map((f) => ({ id: f.id, name: f.name, modifiedTime: f.modifiedTime || null }));
     const videos = files
-      .filter((f) => f && isPlausibleVideoFile(f.mimeType, f.name))
+      .filter(
+        (f) =>
+          f &&
+          f.mimeType !== 'application/vnd.google-apps.folder' &&
+          (isPlausibleVideoFile(f.mimeType, f.name) || looksLikeVideoFilename(f.name))
+      )
       .map((f) => ({
         id: f.id,
         title: f.name,
