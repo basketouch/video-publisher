@@ -229,6 +229,12 @@
       flex-direction: column;
       min-height: 0;
     }
+    #left-pane-video[hidden],
+    #left-pane-charts[hidden],
+    #right-stack-video[hidden],
+    #right-stack-charts[hidden] {
+      display: none !important;
+    }
     #left-pane-video .list {
       flex: 1;
       min-height: 0;
@@ -847,18 +853,18 @@
             }
           });
         }
+        const meanLabelStr = Number.isFinite(meanPps) ? Number(meanPps).toFixed(2) : '';
         if (Number.isFinite(meanPps) && series.length) {
-          const meanLabel = Number(meanPps).toFixed(2);
           series[0].markLine = {
             symbol: 'none',
             lineStyle: { type: 'dashed', color: LAKERS_GOLD, width: 2, opacity: 0.9 },
             label: {
               show: true,
-              formatter: () => `Media PPS ${meanLabel}`,
+              formatter: () => `Media PPS ${meanLabelStr}`,
               color: LAKERS_GOLD,
               fontSize: 11
             },
-            data: [{ yAxis: meanPps }]
+            data: [{ yAxis: meanPps, name: 'Media PPS' }]
           };
         }
         return {
@@ -878,7 +884,22 @@
             borderWidth: 1,
             textStyle: { color: IN_GRID_TEXT },
             formatter: (p) => {
-              const d = p.data || [];
+              const d = p.data;
+              const isMarkMean =
+                p.componentType === 'markLine' ||
+                p.name === 'Media PPS' ||
+                (d &&
+                  typeof d === 'object' &&
+                  !Array.isArray(d) &&
+                  typeof d.yAxis === 'number' &&
+                  Number.isFinite(meanPps) &&
+                  Math.abs(d.yAxis - meanPps) < 1e-5);
+              if (isMarkMean) {
+                return `Media PPS: ${meanLabelStr}<br/>Promedio de PPS entre los jugadores del gráfico (filtro de equipo actual).`;
+              }
+              if (!Array.isArray(d) || d.length < 2) {
+                return '';
+              }
               return `${d[2] || ''}<br/>FGA: ${d[0]}<br/>PPS: ${d[1]}`;
             }
           },
