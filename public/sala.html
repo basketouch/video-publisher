@@ -69,7 +69,7 @@
       grid-template-columns: 340px 1fr;
       gap: 18px;
     }
-    .layout--left-collapsed { grid-template-columns: 48px 1fr; }
+    .layout--left-collapsed { grid-template-columns: 56px 1fr; }
     .sala-left-panel { display: flex; flex-direction: column; }
     .sala-nav-head {
       display: flex;
@@ -78,19 +78,34 @@
       background: rgba(14, 10, 23, 0.7);
     }
     .sala-nav-head .main-tabs { flex: 1; min-width: 0; border-bottom: none; }
-    .sala-side-toggle {
+    .sala-left-dock {
       flex-shrink: 0;
-      width: 44px;
-      border: none;
-      border-left: 1px solid rgba(253, 185, 39, 0.16);
-      background: rgba(8, 6, 16, 0.55);
-      color: var(--lakers-gold);
-      font-size: 15px;
-      line-height: 1;
-      cursor: pointer;
-      transition: background 0.15s, color 0.15s;
+      padding: 6px 8px 8px;
+      border-bottom: 1px solid rgba(253, 185, 39, 0.12);
+      background: rgba(10, 7, 18, 0.45);
     }
-    .sala-side-toggle:hover { background: rgba(85, 37, 131, 0.35); color: var(--text-primary); }
+    .sala-dock-btn {
+      display: block;
+      width: 100%;
+      box-sizing: border-box;
+      margin: 0;
+      border-radius: 10px;
+      border: 1px solid rgba(253, 185, 39, 0.28);
+      background: rgba(8, 6, 16, 0.75);
+      color: var(--lakers-gold);
+      font-size: 12px;
+      font-weight: 600;
+      padding: 8px 6px;
+      cursor: pointer;
+      line-height: 1.2;
+      font-family: inherit;
+      transition: background 0.15s, border-color 0.15s, color 0.15s;
+    }
+    .sala-dock-btn:hover {
+      background: rgba(85, 37, 131, 0.38);
+      border-color: rgba(253, 185, 39, 0.45);
+      color: var(--text-primary);
+    }
     .sala-left-expanded {
       display: flex;
       flex-direction: column;
@@ -98,15 +113,19 @@
       min-height: 0;
     }
     .sala-left-collapsed-bar {
+      flex: 0 0 auto;
       display: flex;
-      flex: 1;
       flex-direction: column;
-      align-items: center;
-      padding: 10px 0;
-      min-height: 120px;
+      align-items: stretch;
+      justify-content: flex-start;
+      align-self: stretch;
+      padding: 6px 4px 8px;
     }
-    .sala-left-collapsed-bar .sala-side-toggle--open { width: 40px; min-height: 44px; border-radius: 10px; border: 1px solid rgba(253, 185, 39, 0.22); }
-    .layout--left-collapsed .sala-left-panel { min-height: 0; }
+    .sala-left-collapsed-bar .sala-dock-btn { padding: 8px 4px; }
+    .layout--left-collapsed .sala-left-panel {
+      min-height: auto;
+      align-self: start;
+    }
     .sala-notes-fold {
       flex-shrink: 0;
       align-self: flex-start;
@@ -481,11 +500,13 @@
       .layout { grid-template-columns: 1fr; }
       .layout--left-collapsed { grid-template-columns: 1fr; }
       .layout--left-collapsed .sala-left-panel {
-        min-height: 0;
-        max-height: 56px;
-        overflow: hidden;
+        min-height: auto;
+        max-height: none;
+        overflow: visible;
+        align-self: start;
+        width: 100%;
       }
-      .layout--left-collapsed .sala-left-collapsed-bar { min-height: 48px; padding: 4px 0; }
+      .layout--left-collapsed .sala-left-collapsed-bar { padding: 6px 8px 8px; }
       .brand-title { font-size: 22px; }
       .toolbar { align-items: flex-start; flex-direction: column; }
     }
@@ -519,14 +540,16 @@
           <button type="button" class="main-tab active" data-main="video" role="tab" aria-selected="true">Video</button>
           <button type="button" class="main-tab" data-main="charts" role="tab" aria-selected="false">Gráficos</button>
         </div>
+        </div>
+        <div class="sala-left-dock">
         <button
           type="button"
-          class="sala-side-toggle"
+          class="sala-dock-btn"
           id="sala-toggle-left-collapse"
-          title="Plegar panel de lista"
-          aria-label="Plegar panel de lista"
+          title="Contraer panel de lista y dejar el vídeo a pantalla ancha"
+          aria-label="Contraer panel de lista"
           aria-expanded="true"
-        >◀</button>
+        >Contraer panel</button>
         </div>
         <div id="left-pane-video" class="left-stack">
           <nav id="video-breadcrumb" class="video-breadcrumb" aria-label="Carpetas de videos"></nav>
@@ -553,12 +576,12 @@
         <div class="sala-left-collapsed-bar" id="sala-left-collapsed-bar" hidden>
           <button
             type="button"
-            class="sala-side-toggle sala-side-toggle--open"
+            class="sala-dock-btn"
             id="sala-toggle-left-open"
-            title="Mostrar panel de lista"
+            title="Mostrar de nuevo el panel de lista (Video / Gráficos)"
             aria-label="Mostrar panel de lista"
             aria-expanded="false"
-          >▶</button>
+          >Mostrar panel</button>
         </div>
       </section>
 
@@ -1816,6 +1839,10 @@
         if (leftOpenBtn) {
           leftOpenBtn.setAttribute('aria-expanded', on ? 'false' : 'true');
         }
+        if (on) {
+          setVideoNotesCollapsed(true);
+          setChartNotesCollapsed(true);
+        }
         writeBool(K_LEFT, on);
         scheduleChartIfAny();
       }
@@ -1860,9 +1887,12 @@
           setChartNotesCollapsed(!chartNotesBox.classList.contains('notes--collapsed'));
         });
       }
-      setLeftCollapsed(readBool(K_LEFT));
-      setVideoNotesCollapsed(readBool(K_VN));
-      setChartNotesCollapsed(readBool(K_CN));
+      const startLeft = readBool(K_LEFT);
+      setLeftCollapsed(startLeft);
+      if (!startLeft) {
+        setVideoNotesCollapsed(readBool(K_VN));
+        setChartNotesCollapsed(readBool(K_CN));
+      }
     })();
 
     (async () => {
