@@ -946,8 +946,9 @@ async function assertSalaVideoFileId(drive, fileId, listFolderId) {
   if (await isUnderVideoSalaRoot(drive, fileId, root)) return true;
   for (const p of got.data.parents || []) {
     const pid = String(p || '').trim();
-    if (pid === root) return true;
-    if (await folderIsUnderRootByListing(drive, pid, root)) return true;
+    if (pid && (await assertFolderInSalaVideoTree(drive, pid))) {
+      return true;
+    }
   }
   if (await videoFileIsUnderRootByListing(drive, fileId, root)) return true;
   return false;
