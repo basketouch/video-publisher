@@ -1546,7 +1546,6 @@
       window.__salaCurrentVideoTitle = label;
       if (rightHeading) rightHeading.textContent = label;
       player.src = `/api/private/videos/${encodeURIComponent(id)}/stream${privateVideoQuerySuffix()}`;
-      player.play().catch(() => {});
       if (listEl) listEl.querySelectorAll('button.item').forEach((btn) => btn.classList.toggle('active', btn.dataset.id === id));
       await loadNotes(id);
     }
@@ -1575,10 +1574,18 @@
       videoSubfoldersData = data.subfolders || [];
       renderVideoBreadcrumbs(data.breadcrumbs || []);
       videosData = data.videos || [];
+      currentVideoId = null;
       renderList();
       const vidsSorted = sortVideoPaneVideos(videosData, listSort);
-      if (vidsSorted[0]) await playVideo(vidsSorted[0].id, vidsSorted[0].title);
-      else {
+      if (vidsSorted.length) {
+        if (rightHeading) rightHeading.textContent = data.folderName || 'Videos';
+        window.__salaCurrentVideoTitle = '';
+        player.removeAttribute('src');
+        if (typeof player.load === 'function') player.load();
+        notesText.textContent = 'Elige un video de la lista; pulsa play en el reproductor para verlo.';
+        notesEditor.value = '';
+        notesMeta.textContent = '';
+      } else {
         player.removeAttribute('src');
         if (typeof player.load === 'function') player.load();
         currentVideoId = null;
