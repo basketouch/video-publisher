@@ -1024,6 +1024,54 @@ async function assertSalaVideoFileId(drive, fileId, listFolderId) {
   return false;
 }
 
+/** IDs vistos en el último listado (GET /api/private/videos); mantiene la cookie de sesión pequeña. */
+const SALA_SESSION_VIDEO_IDS_KEY = 'salaListVideoIds';
+const SALA_MAX_SESSION_VIDEO_IDS = 50;
+
+function rememberSalaListVideoIdsFromResponse(req, videos) {
+  if (!req.session) return;
+  const ids = (videos || [])
+    .map((v) => v && v.id)
+    .filter((id) => id && /^[-a-zA-Z0-9_]+$/.test(String(id)));
+  const prev = Array.isArray(req.session[SALA_SESSION_VIDEO_IDS_KEY])
+    ? req.session[SALA_SESSION_VIDEO_IDS_KEY]
+    : [];
+  const merged = [...new Set([...prev, ...ids])].slice(-SALA_MAX_SESSION_VIDEO_IDS);
+  req.session[SALA_SESSION_VIDEO_IDS_KEY] = merged;
+}
+
+function sessionListsSalaVideoId(req, fileId) {
+  if (!fileId || !req.session) return false;
+  const set = req.session[SALA_SESSION_VIDEO_IDS_KEY];
+  if (!Array.isArray(set)) return false;
+  return set.includes(String(fileId));
+}
+
+/**
+ * Si el id salió de GET /api/private/videos (sesión), acepta el vídeo con un get a Drive: evita desajustes de árbol vs API.
+ */
+async function assertSalaVideoFileIdOrListSession(req, drive, fileId) {
+  if (sessionListsSalaVideoId(req, fileId)) {
+    const got = await drive.files
+      .get({
+        fileId,
+        fields: 'mimeType, trashed, name',
+        supportsAllDrives: true
+      })
+      .catch(() => null);
+    if (got?.data && got.data.trashed !== true) {
+      if (got.data.mimeType !== 'application/vnd.google-apps.folder') {
+        const m = got.data.mimeType;
+        const n = got.data.name;
+        if (isPlausibleVideoFile(m, n) || looksLikeVideoFilename(n)) {
+          return true;
+        }
+      }
+    }
+  }
+  return assertSalaVideoFileId(drive, fileId, salaListFolderHint(req));
+}
+
 /**
  * Ruta de migas desde folderId hasta rootId (inclusive). Máximo ~30 niveles.
  */
@@ -1130,6 +1178,7 @@ app.get('/api/private/videos', requireAuth, async (req, res) => {
     const parentFolderId = parents[0] || null;
 
     setSalaListFolderCookie(res, parentId);
+    rememberSalaListVideoIdsFromResponse(req, videos);
 
     res.json({
       rootFolderId: VIDEO_SALA_ROOT_FOLDER_ID,
@@ -1165,8 +1214,7 @@ app.get('/api/private/videos/:id/stream', requireAuth, async (req, res) => {
   try {
     const drive = google.drive({ version: 'v3', auth });
     const fileId = req.params.id;
-    const listFolder = salaListFolderHint(req);
-    if (!(await assertSalaVideoFileId(drive, fileId, listFolder))) {
+    if (!(await assertSalaVideoFileIdOrListSession(req, drive, fileId))) {
       return res.status(403).json({ error: 'Video no disponible en la carpeta de la sala.' });
     }
     const range = req.headers.range;
@@ -1224,7 +1272,7 @@ app.get('/api/private/videos/:id/notes', requireAuth, async (req, res) => {
   if (!auth) return res.status(503).json({ error: 'Service Account no configurado para notas' });
   try {
     const drive = google.drive({ version: 'v3', auth });
-    if (!(await assertSalaVideoFileId(drive, req.params.id, salaListFolderHint(req)))) {
+    if (!(await assertSalaVideoFileIdOrListSession(req, drive, req.params.id))) {
       return res.status(403).json({ error: 'Video no disponible en la carpeta de la sala.' });
     }
     const notes = await loadVideoNotes(drive);
@@ -1257,7 +1305,7 @@ app.put('/api/private/videos/:id/notes', requireAdmin, async (req, res) => {
   }
   try {
     const drive = google.drive({ version: 'v3', auth });
-    if (!(await assertSalaVideoFileId(drive, req.params.id, salaListFolderHint(req)))) {
+    if (!(await assertSalaVideoFileIdOrListSession(req, drive, req.params.id))) {
       return res.status(403).json({ error: 'Video no disponible en la carpeta de la sala.' });
     }
     const notes = await loadVideoNotes(drive);
