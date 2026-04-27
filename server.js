@@ -790,6 +790,63 @@ async function folderIsUnderRootByListing(drive, targetFolderId, rootId = VIDEO_
   return false;
 }
 
+function isPlausibleVideoFile(mimeRaw, nameRaw) {
+  const mime = String(mimeRaw || '').toLowerCase();
+  const name = String(nameRaw || '');
+  if (mime.startsWith('video/')) return true;
+  if (mime === 'application/octet-stream' || mime === 'binary/octet-stream') {
+    return /\.(mp4|mov|m4v|webm|avi|mkv|mpeg|mpg|3gp|wmv|flv)(\b|$)/i.test(name);
+  }
+  return false;
+}
+
+/**
+ * Comprueba que un archivo de vídeo cuelga de rootId recorriendo carpetas y listando hijos (como en la UI).
+ * Cubre unidades compartidas donde parents en files.get no basta para la carpeta padre.
+ */
+async function videoFileIsUnderRootByListing(drive, targetFileId, rootId = VIDEO_SALA_ROOT_FOLDER_ID) {
+  const target = String(targetFileId || '').trim();
+  const root = String(rootId || '').trim();
+  if (!target || !root || !/^[-a-zA-Z0-9_]+$/.test(target)) return false;
+
+  const queue = [root];
+  const seen = new Set();
+  let listCalls = 0;
+  const maxListCalls = 900;
+
+  while (queue.length > 0 && listCalls < maxListCalls && seen.size < 12000) {
+    const dir = queue.shift();
+    if (!dir || seen.has(dir)) continue;
+    seen.add(dir);
+
+    listCalls += 1;
+    let pageToken;
+    try {
+      do {
+        const res = await drive.files.list({
+          q: `'${dir}' in parents and trashed = false`,
+          fields: 'nextPageToken, files(id, mimeType, name)',
+          pageSize: 200,
+          pageToken,
+          supportsAllDrives: true,
+          includeItemsFromAllDrives: true
+        });
+        for (const f of res.data.files || []) {
+          if (!f?.id) continue;
+          if (f.id === target && isPlausibleVideoFile(f.mimeType, f.name)) return true;
+          if (f.mimeType === 'application/vnd.google-apps.folder' && !seen.has(f.id)) {
+            queue.push(f.id);
+          }
+        }
+        pageToken = res.data.nextPageToken;
+      } while (pageToken);
+    } catch (e) {
+      console.warn('[videos] videoFileIsUnderRootByListing', dir, e.message);
+    }
+  }
+  return false;
+}
+
 async function assertFolderInSalaVideoTree(drive, folderId) {
   const root = VIDEO_SALA_ROOT_FOLDER_ID;
   if (await isUnderVideoSalaRoot(drive, folderId, root)) return true;
@@ -801,20 +858,22 @@ async function assertSalaVideoFileId(drive, fileId) {
   const got = await drive.files
     .get({
       fileId,
-      fields: 'mimeType, trashed, parents',
+      fields: 'mimeType, trashed, parents, name',
       supportsAllDrives: true
     })
     .catch(() => null);
-  const mime = got?.data?.mimeType;
-  if (!mime || !String(mime).startsWith('video/') || got?.data?.trashed === true) return false;
-  if (await isUnderVideoSalaRoot(drive, fileId, VIDEO_SALA_ROOT_FOLDER_ID)) return true;
-  const parents = got?.data?.parents || [];
+  if (!got?.data || got.data.trashed === true) return false;
+  if (!isPlausibleVideoFile(got.data.mimeType, got.data.name)) return false;
+
   const root = VIDEO_SALA_ROOT_FOLDER_ID;
+  if (await isUnderVideoSalaRoot(drive, fileId, root)) return true;
+  const parents = got.data.parents || [];
   for (const p of parents) {
     const pid = String(p || '').trim();
     if (pid === root) return true;
     if (await folderIsUnderRootByListing(drive, pid, root)) return true;
   }
+  if (await videoFileIsUnderRootByListing(drive, fileId, root)) return true;
   return false;
 }
 
