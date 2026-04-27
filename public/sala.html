@@ -69,7 +69,7 @@
       grid-template-columns: 340px 1fr;
       gap: 18px;
     }
-    .layout--left-collapsed { grid-template-columns: 56px 1fr; }
+    .layout--left-collapsed { grid-template-columns: 40px 1fr; }
     .sala-left-panel { display: flex; flex-direction: column; }
     .sala-nav-head {
       display: flex;
@@ -78,33 +78,30 @@
       background: rgba(14, 10, 23, 0.7);
     }
     .sala-nav-head .main-tabs { flex: 1; min-width: 0; border-bottom: none; }
-    .sala-left-dock {
-      flex-shrink: 0;
-      padding: 6px 8px 8px;
-      border-bottom: 1px solid rgba(253, 185, 39, 0.12);
-      background: rgba(10, 7, 18, 0.45);
-    }
-    .sala-dock-btn {
-      display: block;
-      width: 100%;
+    .sala-ico { display: block; flex-shrink: 0; pointer-events: none; }
+    .sala-panel-icon-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 40px;
+      min-height: 44px;
+      padding: 0;
       box-sizing: border-box;
-      margin: 0;
-      border-radius: 10px;
-      border: 1px solid rgba(253, 185, 39, 0.28);
-      background: rgba(8, 6, 16, 0.75);
+      border: none;
+      border-left: 1px solid rgba(253, 185, 39, 0.16);
+      background: rgba(8, 6, 16, 0.45);
       color: var(--lakers-gold);
-      font-size: 12px;
-      font-weight: 600;
-      padding: 8px 6px;
       cursor: pointer;
-      line-height: 1.2;
-      font-family: inherit;
-      transition: background 0.15s, border-color 0.15s, color 0.15s;
+      flex-shrink: 0;
+      transition: background 0.15s, color 0.15s;
     }
-    .sala-dock-btn:hover {
+    .sala-panel-icon-btn:hover {
       background: rgba(85, 37, 131, 0.38);
-      border-color: rgba(253, 185, 39, 0.45);
       color: var(--text-primary);
+    }
+    .sala-panel-icon-btn:focus-visible {
+      outline: none;
+      box-shadow: inset 0 0 0 2px rgba(253, 185, 39, 0.45);
     }
     .sala-left-expanded {
       display: flex;
@@ -119,9 +116,16 @@
       align-items: stretch;
       justify-content: flex-start;
       align-self: stretch;
-      padding: 6px 4px 8px;
+      padding: 5px 4px 6px;
     }
-    .sala-left-collapsed-bar .sala-dock-btn { padding: 8px 4px; }
+    .sala-left-collapsed-bar .sala-panel-icon-btn {
+      width: 100%;
+      min-height: 36px;
+      border-left: none;
+      border-radius: 8px;
+      border: 1px solid rgba(253, 185, 39, 0.22);
+      background: rgba(8, 6, 16, 0.78);
+    }
     .layout--left-collapsed .sala-left-panel {
       min-height: auto;
       align-self: start;
@@ -129,19 +133,25 @@
     .sala-notes-fold {
       flex-shrink: 0;
       align-self: flex-start;
-      width: 36px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 32px;
       height: 32px;
+      padding: 0;
+      margin-top: 2px;
       border-radius: 8px;
       border: 1px solid rgba(253, 185, 39, 0.28);
       background: rgba(8, 6, 16, 0.65);
       color: var(--lakers-gold);
-      font-size: 12px;
-      line-height: 1;
+      line-height: 0;
       cursor: pointer;
-      margin-top: 2px;
       transition: background 0.15s, border-color 0.15s;
     }
+    .sala-ico--chev-v { transition: transform 0.2s ease; transform-origin: center; }
+    .notes-box.notes--collapsed .sala-ico--chev-v { transform: rotate(180deg); }
     .sala-notes-fold:hover { background: rgba(85, 37, 131, 0.35); border-color: rgba(253, 185, 39, 0.45); }
+    .sala-notes-fold:focus-visible { outline: none; box-shadow: 0 0 0 2px rgba(253, 185, 39, 0.3); }
     .notes-box.notes--collapsed { padding-bottom: 10px; }
     .notes-box.notes--collapsed .notes-body { display: none !important; }
     .panel {
@@ -540,16 +550,14 @@
           <button type="button" class="main-tab active" data-main="video" role="tab" aria-selected="true">Video</button>
           <button type="button" class="main-tab" data-main="charts" role="tab" aria-selected="false">Gráficos</button>
         </div>
-        </div>
-        <div class="sala-left-dock">
         <button
           type="button"
-          class="sala-dock-btn"
+          class="sala-panel-icon-btn"
           id="sala-toggle-left-collapse"
-          title="Contraer panel de lista y dejar el vídeo a pantalla ancha"
+          title="Contraer panel"
           aria-label="Contraer panel de lista"
           aria-expanded="true"
-        >Contraer panel</button>
+        ><svg class="sala-ico" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
         </div>
         <div id="left-pane-video" class="left-stack">
           <nav id="video-breadcrumb" class="video-breadcrumb" aria-label="Carpetas de videos"></nav>
@@ -576,12 +584,12 @@
         <div class="sala-left-collapsed-bar" id="sala-left-collapsed-bar" hidden>
           <button
             type="button"
-            class="sala-dock-btn"
+            class="sala-panel-icon-btn"
             id="sala-toggle-left-open"
-            title="Mostrar de nuevo el panel de lista (Video / Gráficos)"
+            title="Mostrar panel"
             aria-label="Mostrar panel de lista"
             aria-expanded="false"
-          >Mostrar panel</button>
+          ><svg class="sala-ico" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg></button>
         </div>
       </section>
 
@@ -605,7 +613,7 @@
                   aria-label="Plegar sección de análisis"
                   aria-expanded="true"
                   aria-controls="sala-video-notes-body"
-                >▲</button>
+                ><svg class="sala-ico sala-ico--chev-v" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 15l6-6 6 6"/></svg></button>
               </div>
               <div id="sala-video-notes-body" class="notes-body">
               <div id="notes-text" class="notes-text">Selecciona un video para ver el analisis.</div>
@@ -664,7 +672,7 @@
                 aria-label="Plegar sección de anotaciones"
                 aria-expanded="true"
                 aria-controls="sala-chart-notes-body"
-              >▲</button>
+              ><svg class="sala-ico sala-ico--chev-v" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 15l6-6 6 6"/></svg></button>
             </div>
             <div id="sala-chart-notes-body" class="notes-body">
             <div id="game-chart-notes-text" class="notes-text">Selecciona un partido y una pestaña de gráfico.</div>
@@ -1850,7 +1858,6 @@
         if (!videoNotesBox || !videoNotesToggle) return;
         videoNotesBox.classList.toggle('notes--collapsed', on);
         videoNotesToggle.setAttribute('aria-expanded', on ? 'false' : 'true');
-        videoNotesToggle.textContent = on ? '▼' : '▲';
         videoNotesToggle.title = on ? 'Desplegar análisis' : 'Plegar análisis';
         videoNotesToggle.setAttribute(
           'aria-label',
@@ -1862,7 +1869,6 @@
         if (!chartNotesBox || !chartNotesToggle) return;
         chartNotesBox.classList.toggle('notes--collapsed', on);
         chartNotesToggle.setAttribute('aria-expanded', on ? 'false' : 'true');
-        chartNotesToggle.textContent = on ? '▼' : '▲';
         chartNotesToggle.title = on ? 'Desplegar anotaciones' : 'Plegar anotaciones';
         chartNotesToggle.setAttribute(
           'aria-label',
