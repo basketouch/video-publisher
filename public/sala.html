@@ -267,6 +267,22 @@
       font-weight: 600;
       padding: 2px 4px;
     }
+    .video-sort-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 8px 14px 10px;
+      border-bottom: 1px solid rgba(253, 185, 39, 0.1);
+      flex-shrink: 0;
+    }
+    .video-sort-bar label {
+      font-size: 12px;
+      color: var(--text-secondary);
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .video-sort-bar .chart-team-select { flex: 1; min-width: 0; max-width: 100%; }
     .item-folder .meta { text-transform: uppercase; letter-spacing: 0.4px; font-size: 10px; }
     .item-folder .title::before { content: '📁 '; }
     .pane-label {
@@ -435,6 +451,15 @@
         </div>
         <div id="left-pane-video" class="left-stack">
           <nav id="video-breadcrumb" class="video-breadcrumb" aria-label="Carpetas de videos"></nav>
+          <div class="video-sort-bar">
+            <label for="video-list-sort">Ordenar</label>
+            <select id="video-list-sort" class="chart-team-select" aria-label="Criterio de orden para carpetas y videos">
+              <option value="name_asc">Nombre (A a Z)</option>
+              <option value="name_desc">Nombre (Z a A)</option>
+              <option value="date_desc">Fecha: más reciente</option>
+              <option value="date_asc">Fecha: más antigua</option>
+            </select>
+          </div>
           <div id="video-list" class="list">
             <div class="empty">Cargando videos...</div>
           </div>
@@ -1335,6 +1360,7 @@
   <script>
     const listEl = document.getElementById('video-list');
     const videoBreadcrumbEl = document.getElementById('video-breadcrumb');
+    const sortSelect = document.getElementById('video-list-sort');
     const player = document.getElementById('player');
     const rightHeading = document.getElementById('right-heading');
     const logoutBtn = document.getElementById('logout');
@@ -1344,10 +1370,39 @@
     const notesMeta = document.getElementById('notes-meta');
     const notesActions = document.getElementById('notes-actions');
     const saveNotesBtn = document.getElementById('save-notes');
-    let videos = [];
-    let videoSubfolders = [];
+    const VIDEO_SORT_KEY = 'salaVideoListSort';
+    const VIDEO_SORT_MODES = ['name_asc', 'name_desc', 'date_desc', 'date_asc'];
+    function readListSort() {
+      const s = String(localStorage.getItem(VIDEO_SORT_KEY) || 'date_desc').trim();
+      return VIDEO_SORT_MODES.includes(s) ? s : 'date_desc';
+    }
+    let listSort = readListSort();
+    if (sortSelect) sortSelect.value = listSort;
+    let videosData = [];
+    let videoSubfoldersData = [];
     let currentRole = null;
     let currentVideoId = null;
+
+    function sortVideoPaneSubfolders(arr, mode) {
+      const out = (arr || []).slice();
+      const byName = (a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'es', { sensitivity: 'base' });
+      const byDate = (a, b) => new Date(b.modifiedTime || 0) - new Date(a.modifiedTime || 0);
+      if (mode === 'name_asc') out.sort(byName);
+      else if (mode === 'name_desc') out.sort((a, b) => (byName(b, a) || 0));
+      else if (mode === 'date_desc') out.sort(byDate);
+      else if (mode === 'date_asc') out.sort((a, b) => (byDate(b, a) || 0));
+      return out;
+    }
+    function sortVideoPaneVideos(arr, mode) {
+      const out = (arr || []).slice();
+      const byName = (a, b) => String(a.title || '').localeCompare(String(b.title || ''), 'es', { sensitivity: 'base' });
+      const byDate = (a, b) => new Date(b.modifiedTime || 0) - new Date(a.modifiedTime || 0);
+      if (mode === 'name_asc') out.sort(byName);
+      else if (mode === 'name_desc') out.sort((a, b) => (byName(b, a) || 0));
+      else if (mode === 'date_desc') out.sort(byDate);
+      else if (mode === 'date_asc') out.sort((a, b) => (byDate(b, a) || 0));
+      return out;
+    }
 
     function escapeHtml(s) {
       return String(s || '')
@@ -1405,23 +1460,29 @@
     }
 
     function renderList() {
-      if (!videos.length && !videoSubfolders.length) {
+      if (!videosData.length && !videoSubfoldersData.length) {
         listEl.innerHTML = '<div class="empty">No hay carpetas ni videos en esta ubicación.</div>';
         return;
       }
-      const folderRows = videoSubfolders
+      const subfolders = sortVideoPaneSubfolders(videoSubfoldersData, listSort);
+      const videos = sortVideoPaneVideos(videosData, listSort);
+      const folderRows = subfolders
         .map(
           (f) => `
         <button type="button" class="item item-folder" data-folder-id="${(f.id || '').replace(/"/g, '&quot;')}" data-title="${(f.name || '').replace(/"/g, '&quot;')}">
           <span class="title">${escapeHtml(f.name)}</span>
-          <span class="meta">Carpeta</span>
+          <span class="meta">${
+            f.modifiedTime
+              ? `Carpeta · ${formatDate(f.modifiedTime)}`
+              : 'Carpeta'
+          }</span>
         </button>`
         )
         .join('');
       const videoRows = videos
         .map(
-          (v, idx) => `
-        <button type="button" class="item ${idx === 0 ? 'active' : ''}" data-id="${(v.id || '').replace(/"/g, '&quot;')}" data-title="${(v.title || '').replace(/"/g, '&quot;')}">
+          (v) => `
+        <button type="button" class="item ${v.id && currentVideoId === v.id ? 'active' : ''}" data-id="${(v.id || '').replace(/"/g, '&quot;')}" data-title="${(v.title || '').replace(/"/g, '&quot;')}">
           <span class="title">${escapeHtml(v.title)}</span>
           <span class="meta">${formatDate(v.modifiedTime)}</span>
         </button>`
@@ -1468,11 +1529,12 @@
         if (videoBreadcrumbEl) videoBreadcrumbEl.innerHTML = '';
         return;
       }
-      videoSubfolders = data.subfolders || [];
+      videoSubfoldersData = data.subfolders || [];
       renderVideoBreadcrumbs(data.breadcrumbs || []);
-      videos = data.videos || [];
+      videosData = data.videos || [];
       renderList();
-      if (videos[0]) await playVideo(videos[0].id, videos[0].title);
+      const vidsSorted = sortVideoPaneVideos(videosData, listSort);
+      if (vidsSorted[0]) await playVideo(vidsSorted[0].id, vidsSorted[0].title);
       else {
         player.removeAttribute('src');
         if (typeof player.load === 'function') player.load();
@@ -1483,6 +1545,16 @@
         notesEditor.value = '';
         notesMeta.textContent = '';
       }
+    }
+
+    if (sortSelect) {
+      sortSelect.addEventListener('change', () => {
+        const v = String(sortSelect.value || 'date_desc');
+        listSort = VIDEO_SORT_MODES.includes(v) ? v : 'date_desc';
+        localStorage.setItem(VIDEO_SORT_KEY, listSort);
+        sortSelect.value = listSort;
+        renderList();
+      });
     }
 
     if (videoBreadcrumbEl) {

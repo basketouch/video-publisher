@@ -945,11 +945,9 @@ app.get('/api/private/videos', requireAuth, async (req, res) => {
     const files = data.files || [];
     const subfolders = files
       .filter((f) => f.mimeType === 'application/vnd.google-apps.folder')
-      .map((f) => ({ id: f.id, name: f.name }))
-      .sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
+      .map((f) => ({ id: f.id, name: f.name, modifiedTime: f.modifiedTime || null }));
     const videos = files
-      .filter((f) => f.mimeType && String(f.mimeType).startsWith('video/'))
-      .sort((a, b) => new Date(b.modifiedTime || 0) - new Date(a.modifiedTime || 0))
+      .filter((f) => f && isPlausibleVideoFile(f.mimeType, f.name))
       .map((f) => ({
         id: f.id,
         title: f.name,
