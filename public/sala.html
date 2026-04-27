@@ -109,6 +109,10 @@
       flex: 1;
       min-height: 0;
     }
+    #sala-left-expanded[hidden],
+    #sala-left-collapsed-bar[hidden] {
+      display: none !important;
+    }
     .sala-left-collapsed-bar {
       flex: 0 0 auto;
       display: flex;
@@ -118,7 +122,10 @@
       align-self: stretch;
       padding: 5px 4px 6px;
     }
-    .sala-left-collapsed-bar .sala-panel-icon-btn {
+    .sala-left-toggle-slot--end { flex-shrink: 0; }
+    #sala-left-rail-toggle-slot { width: 100%; }
+    .sala-left-collapsed-bar .sala-panel-icon-btn,
+    #sala-left-rail-toggle-slot .sala-panel-icon-btn {
       width: 100%;
       min-height: 36px;
       border-left: none;
@@ -129,6 +136,8 @@
     .layout--left-collapsed .sala-left-panel {
       min-height: auto;
       align-self: start;
+      min-width: 0;
+      overflow: hidden;
     }
     .sala-notes-fold {
       flex-shrink: 0;
@@ -550,14 +559,16 @@
           <button type="button" class="main-tab active" data-main="video" role="tab" aria-selected="true">Video</button>
           <button type="button" class="main-tab" data-main="charts" role="tab" aria-selected="false">Gráficos</button>
         </div>
+        <div id="sala-left-header-toggle-slot" class="sala-left-toggle-slot sala-left-toggle-slot--end">
         <button
           type="button"
           class="sala-panel-icon-btn"
-          id="sala-toggle-left-collapse"
+          id="sala-toggle-left"
           title="Contraer panel"
           aria-label="Contraer panel de lista"
           aria-expanded="true"
-        ><svg class="sala-ico" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
+        ><svg class="sala-ico" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path id="sala-left-ico-path" d="M15 18l-6-6 6-6"/></svg></button>
+        </div>
         </div>
         <div id="left-pane-video" class="left-stack">
           <nav id="video-breadcrumb" class="video-breadcrumb" aria-label="Carpetas de videos"></nav>
@@ -582,14 +593,7 @@
         </div>
         </div>
         <div class="sala-left-collapsed-bar" id="sala-left-collapsed-bar" hidden>
-          <button
-            type="button"
-            class="sala-panel-icon-btn"
-            id="sala-toggle-left-open"
-            title="Mostrar panel"
-            aria-label="Mostrar panel de lista"
-            aria-expanded="false"
-          ><svg class="sala-ico" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg></button>
+          <div id="sala-left-rail-toggle-slot" class="sala-left-rail"></div>
         </div>
       </section>
 
@@ -1810,8 +1814,12 @@
       const layoutEl = document.getElementById('sala-layout');
       const leftExpandedEl = document.getElementById('sala-left-expanded');
       const leftBarEl = document.getElementById('sala-left-collapsed-bar');
-      const leftCollapseBtn = document.getElementById('sala-toggle-left-collapse');
-      const leftOpenBtn = document.getElementById('sala-toggle-left-open');
+      const leftToggleBtn = document.getElementById('sala-toggle-left');
+      const headerToggleSlot = document.getElementById('sala-left-header-toggle-slot');
+      const railToggleSlot = document.getElementById('sala-left-rail-toggle-slot');
+      const leftIcoPath = document.getElementById('sala-left-ico-path');
+      const D_LEFT = 'M15 18l-6-6 6-6';
+      const D_RIGHT = 'M9 18l6-6-6-6';
       const videoNotesBox = document.getElementById('sala-video-notes-box');
       const videoNotesToggle = document.getElementById('sala-toggle-video-notes');
       const chartNotesBox = document.getElementById('sala-game-chart-notes-box');
@@ -1836,17 +1844,42 @@
           window.__salaScheduleChartResize();
         }
       }
+      function syncLeftToggleUI(isLeftCollapsed) {
+        if (leftIcoPath) {
+          leftIcoPath.setAttribute('d', isLeftCollapsed ? D_RIGHT : D_LEFT);
+        }
+        if (leftToggleBtn) {
+          const hide = isLeftCollapsed;
+          leftToggleBtn.title = hide ? 'Mostrar panel' : 'Contraer panel';
+          leftToggleBtn.setAttribute('aria-label', hide ? 'Mostrar panel de lista' : 'Contraer panel de lista');
+          leftToggleBtn.setAttribute('aria-expanded', (!hide).toString());
+        }
+      }
       function setLeftCollapsed(on) {
-        if (!layoutEl) return;
+        if (!layoutEl || !leftToggleBtn) return;
+        if (on) {
+          if (railToggleSlot) {
+            railToggleSlot.appendChild(leftToggleBtn);
+          }
+          if (leftExpandedEl) {
+            leftExpandedEl.hidden = true;
+          }
+          if (leftBarEl) {
+            leftBarEl.hidden = false;
+          }
+        } else {
+          if (headerToggleSlot) {
+            headerToggleSlot.appendChild(leftToggleBtn);
+          }
+          if (leftBarEl) {
+            leftBarEl.hidden = true;
+          }
+          if (leftExpandedEl) {
+            leftExpandedEl.hidden = false;
+          }
+        }
         layoutEl.classList.toggle('layout--left-collapsed', on);
-        if (leftExpandedEl) leftExpandedEl.hidden = on;
-        if (leftBarEl) leftBarEl.hidden = !on;
-        if (leftCollapseBtn) {
-          leftCollapseBtn.setAttribute('aria-expanded', on ? 'false' : 'true');
-        }
-        if (leftOpenBtn) {
-          leftOpenBtn.setAttribute('aria-expanded', on ? 'false' : 'true');
-        }
+        syncLeftToggleUI(on);
         if (on) {
           setVideoNotesCollapsed(true);
           setChartNotesCollapsed(true);
@@ -1877,11 +1910,11 @@
         writeBool(K_CN, on);
         scheduleChartIfAny();
       }
-      if (leftCollapseBtn) {
-        leftCollapseBtn.addEventListener('click', () => setLeftCollapsed(true));
-      }
-      if (leftOpenBtn) {
-        leftOpenBtn.addEventListener('click', () => setLeftCollapsed(false));
+      if (leftToggleBtn) {
+        leftToggleBtn.addEventListener('click', () => {
+          const c = layoutEl && layoutEl.classList.contains('layout--left-collapsed');
+          setLeftCollapsed(!c);
+        });
       }
       if (videoNotesToggle && videoNotesBox) {
         videoNotesToggle.addEventListener('click', () => {
